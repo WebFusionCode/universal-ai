@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pandas
+numpy
+scikit-learn
+joblib
+matplotlib
+seaborn
+prophet
+torch
+torchvision
+pillow
+openpyxl
+python-multipart
+shap

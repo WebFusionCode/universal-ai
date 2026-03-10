@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Universal AI Platform</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+
+/* GLOBAL */
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Segoe UI;
+}
+
+body{
+
+background:linear-gradient(135deg,#667eea,#764ba2,#f093fb);
+
+color:white;
+
+overflow-x:hidden;
+
+}
+
+
+/* NAVBAR */
+
+.navbar-container{
+
+position:fixed;
+
+top:20px;
+
+left:50%;
+
+transform:translateX(-50%);
+
+width:95%;
+
+max-width:1100px;
+
+z-index:999;
+
+}
+
+.navbar{
+
+display:flex;
+
+justify-content:space-between;
+
+align-items:center;
+
+padding:15px 30px;
+
+border-radius:50px;
+
+background:rgba(255,255,255,0.1);
+
+backdrop-filter:blur(20px);
+
+border:1px solid rgba(255,255,255,0.2);
+
+}
+
+
+.brand{
+
+font-size:20px;
+
+font-weight:bold;
+
+}
+
+
+.nav-links{
+
+display:flex;
+
+gap:20px;
+
+}
+
+
+.nav-links a{
+
+color:white;
+
+text-decoration:none;
+
+padding:8px 14px;
+
+border-radius:20px;
+
+transition:0.3s;
+
+}
+
+.nav-links a:hover{
+
+background:rgba(255,255,255,0.2);
+
+}
+
+
+/* SECTIONS */
+
+.section{
+
+padding-top:140px;
+
+padding-bottom:80px;
+
+width:90%;
+
+max-width:1100px;
+
+margin:auto;
+
+}
+
+
+.section h2{
+
+margin-bottom:20px;
+
+font-size:28px;
+
+}
+
+
+/* CARDS */
+
+.card{
+
+background:rgba(255,255,255,0.1);
+
+border-radius:20px;
+
+padding:25px;
+
+margin-bottom:30px;
+
+backdrop-filter:blur(10px);
+
+border:1px solid rgba(255,255,255,0.2);
+
+}
+
+
+/* INPUT */
+
+input,select,button{
+
+width:100%;
+
+padding:12px;
+
+margin-top:10px;
+
+border:none;
+
+border-radius:10px;
+
+}
+
+
+input,select{
+
+background:rgba(0,0,0,0.3);
+
+color:white;
+
+}
+
+
+button{
+
+background:linear-gradient(90deg,#00ffe0,#00aaff);
+
+font-weight:bold;
+
+cursor:pointer;
+
+}
+
+
+/* STATS */
+
+.stats-grid{
+
+display:grid;
+
+grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+
+gap:15px;
+
+margin-top:20px;
+
+}
+
+.stat-card{
+
+background:rgba(255,255,255,0.15);
+
+padding:15px;
+
+border-radius:12px;
+
+text-align:center;
+
+}
+
+
+/* PROGRESS */
+
+.progress-container{
+
+width:100%;
+
+background:rgba(255,255,255,0.2);
+
+border-radius:20px;
+
+margin-top:20px;
+
+}
+
+.progress-bar{
+
+height:10px;
+
+width:0%;
+
+border-radius:20px;
+
+background:#00ffe0;
+
+}
+
+
+/* TABLE */
+
+table{
+
+width:100%;
+
+border-collapse:collapse;
+
+margin-top:20px;
+
+}
+
+th,td{
+
+border:1px solid rgba(255,255,255,0.2);
+
+padding:8px;
+
+font-size:12px;
+
+}
+
+th{
+
+background:#00aaff;
+
+}
+
+
+/* LOADER */
+
+.loader{
+
+position:fixed;
+
+inset:0;
+
+background:rgba(0,0,0,0.7);
+
+display:none;
+
+align-items:center;
+
+justify-content:center;
+
+font-size:22px;
+
+z-index:9999;
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+
+<!-- NAVBAR -->
+
+<div class="navbar-container">
+
+<div class="navbar">
+
+<div class="brand">⚡ Universal AI</div>
+
+<div class="nav-links">
+
+<a href="#preview">Dataset</a>
+
+<a href="#train">Train</a>
+
+<a href="#predict">Predict</a>
+
+<a href="#imageAI">Image AI</a>
+
+<a href="#explain">Explain</a>
+
+<a href="/download-model">Download</a>
+
+</div>
+
+</div>
+
+</div>
+
+
+<!-- DATASET -->
+
+<div class="section" id="preview">
+
+<div class="card">
+
+<h2>Dataset Preview</h2>
+
+<form id="previewForm">
+
+<input type="file" name="file" required>
+
+<button>Analyze Dataset</button>
+
+</form>
+
+<select id="targetDropdown"></select>
+
+<canvas id="previewChart"></canvas>
+
+<div id="datasetStats"></div>
+
+<div id="previewTable"></div>
+
+</div>
+
+</div>
+
+
+<!-- TRAIN -->
+
+<div class="section" id="train">
+
+<div class="card">
+
+<h2>Train Model</h2>
+
+<form id="trainForm">
+
+<input type="file" name="file" required>
+
+<input type="hidden" name="target_column" id="selectedTarget">
+
+<button>Train Model</button>
+
+</form>
+
+<div class="progress-container">
+
+<div class="progress-bar" id="progressBar"></div>
+
+</div>
+
+<div id="trainingMetrics"></div>
+
+<div id="leaderboard"></div>
+
+</div>
+
+</div>
+
+
+<!-- PREDICT -->
+
+<div class="section" id="predict">
+
+<div class="card">
+
+<h2>Prediction</h2>
+
+<form id="predictForm">
+
+<input type="file" name="file" required>
+
+<button>Predict</button>
+
+</form>
+
+<canvas id="predictChart"></canvas>
+
+<div id="predictionTable"></div>
+
+</div>
+
+</div>
+
+
+<!-- IMAGE AI -->
+
+<div class="section" id="imageAI">
+
+<div class="card">
+
+<h2>Image Prediction</h2>
+
+<form id="imagePredictForm">
+
+<input type="file" name="file" required>
+
+<button>Predict Image</button>
+
+</form>
+
+<div id="imageResult"></div>
+
+</div>
+
+
+<div class="card">
+
+<h2>Image Explain</h2>
+
+<form id="imageExplainForm">
+
+<input type="file" name="file" required>
+
+<button>Generate Heatmap</button>
+
+</form>
+
+<div id="heatmapResult"></div>
+
+</div>
+
+</div>
+
+
+<!-- EXPLAIN -->
+
+<div class="section" id="explain">
+
+<div class="card">
+
+<h2>Model Explainability</h2>
+
+<button onclick="explainModel()">Explain Model</button>
+
+<canvas id="explainChart"></canvas>
+
+</div>
+
+</div>
+
+
+<div class="loader" id="loader">Processing...</div>
+
+
+<script>
+
+let previewChart=null
+let predictChart=null
+let explainChart=null
+
+function showLoader(){document.getElementById("loader").style.display="flex"}
+
+function hideLoader(){document.getElementById("loader").style.display="none"}
+
+
+/* PREVIEW */
+
+document.getElementById("previewForm").onsubmit=async function(e){
+
+e.preventDefault()
+
+showLoader()
+
+let res=await fetch("/preview",{method:"POST",body:new FormData(this)})
+
+let data=await res.json()
+
+hideLoader()
+
+let dropdown=document.getElementById("targetDropdown")
+
+dropdown.innerHTML=""
+
+data.suggested_target_columns.forEach(col=>{
+
+let option=document.createElement("option")
+
+option.value=col
+
+option.textContent=col
+
+dropdown.appendChild(option)
+
+})
+
+document.getElementById("selectedTarget").value=dropdown.value
+
+
+document.getElementById("datasetStats").innerHTML=`
+
+<div class="stats-grid">
+
+<div class="stat-card">Rows<br>${data.rows}</div>
+
+<div class="stat-card">Columns<br>${data.columns.length}</div>
+
+<div class="stat-card">Numeric<br>${data.numeric_columns.length}</div>
+
+<div class="stat-card">Categorical<br>${data.categorical_columns.length}</div>
+
+</div>
+
+`
+
+}
+
+
+/* TRAIN */
+
+document.getElementById("trainForm").onsubmit=async function(e){
+
+e.preventDefault()
+
+let socket=new WebSocket("ws://127.0.0.1:8000/ws/progress")
+
+socket.onmessage=function(event){
+
+let data=JSON.parse(event.data)
+
+document.getElementById("progressBar").style.width=data.value+"%"
+
+}
+
+showLoader()
+
+let res=await fetch("/train",{method:"POST",body:new FormData(this)})
+
+let data=await res.json()
+
+hideLoader()
+
+}
+
+
+/* PREDICT */
+
+document.getElementById("predictForm").onsubmit=async function(e){
+
+e.preventDefault()
+
+showLoader()
+
+let res=await fetch("/predict",{method:"POST",body:new FormData(this)})
+
+let data=await res.json()
+
+hideLoader()
+
+if(data.predictions){
+
+let values=data.predictions.map(p=>typeof p==="number"?p:p.prediction)
+
+if(predictChart)predictChart.destroy()
+
+predictChart=new Chart(document.getElementById("predictChart"),{
+
+type:"bar",
+
+data:{
+
+labels:values.map((_,i)=>"Row "+(i+1)),
+
+datasets:[{label:"Prediction",data:values}]
+
+}
+
+})
+
+}
+
+}
+
+
+/* IMAGE PREDICT */
+
+document.getElementById("imagePredictForm").onsubmit=async function(e){
+
+e.preventDefault()
+
+showLoader()
+
+let res=await fetch("/predict-image",{method:"POST",body:new FormData(this)})
+
+let data=await res.json()
+
+hideLoader()
+
+document.getElementById("imageResult").innerHTML=
+
+`Prediction: ${data.predicted_class} <br> Confidence: ${data.confidence}`
+
+}
+
+
+/* IMAGE EXPLAIN */
+
+document.getElementById("imageExplainForm").onsubmit=async function(e){
+
+e.preventDefault()
+
+showLoader()
+
+let res=await fetch("/explain-image",{method:"POST",body:new FormData(this)})
+
+let blob=await res.blob()
+
+hideLoader()
+
+let imgUrl=URL.createObjectURL(blob)
+
+document.getElementById("heatmapResult").innerHTML=
+
+`<img src="${imgUrl}" width="300">`
+
+}
+
+
+/* MODEL EXPLAIN */
+
+async function explainModel(){
+
+showLoader()
+
+let res=await fetch("/model-explain")
+
+let data=await res.json()
+
+hideLoader()
+
+if(data.feature_importance){
+
+let labels=Object.keys(data.feature_importance)
+
+let values=Object.values(data.feature_importance)
+
+if(explainChart)explainChart.destroy()
+
+explainChart=new Chart(document.getElementById("explainChart"),{
+
+type:"bar",
+
+data:{
+
+labels:labels,
+
+datasets:[{label:"Importance",data:values}]
+
+},
+
+options:{indexAxis:'y'}
+
+})
+
+}
+
+}
+
+</script>
+
+</body>
+</html>
