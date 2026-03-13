@@ -40,6 +40,7 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 from models.model_library import CLASSIFICATION_MODELS, REGRESSION_MODELS
 from utils.problem_detection import detect_problem_type
+from utils.feature_engineering import auto_feature_engineering
 
 
 
@@ -110,7 +111,7 @@ async def preview_dataset(file: UploadFile = File(...)):
 
         try:
         # Try converting column to datetime
-            converted = pd.to_datetime(df[col], errors="coerce")
+            converted = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
 
             valid_ratio = converted.notna().sum() / max(len(df), 1)
             unique_ratio = converted.nunique() / max(len(df), 1)
@@ -250,109 +251,63 @@ def detect_time_series(df, target_column):
 # =====================================================
 def genetic_model_search(X_train, X_test, y_train, y_test, problem_type):
 
-    population = []
+    from models.model_library import CLASSIFICATION_MODELS, REGRESSION_MODELS
 
-    # Initial population
-    for _ in range(6):
-        n = np.random.randint(50, 200)
-        if problem_type == "classification":
-            model = RandomForestClassifier(n_estimators=n)
-        else:
-            model = RandomForestRegressor(n_estimators=n)
-        population.append(model)
+    if problem_type == "classification":
+        models = CLASSIFICATION_MODELS
+    else:
+        models = REGRESSION_MODELS
 
     best_model = None
     best_score = None
     best_metrics = None
-
-    for generation in range(3):
-
-        scored_population = []
-
-        for model in population:
-
-            model.fit(X_train, y_train)
-
-            if problem_type == "classification":
-
-                preds = model.predict(X_test)
-                acc = accuracy_score(y_test, preds)
-
-                metrics = {
-                    "accuracy": acc
-                }
-
-                score = acc
-                better = best_score is None or score > best_score
-
-            else:
-
-                preds = model.predict(X_test)
-                mse = mean_squared_error(y_test, preds)
-                r2 = model.score(X_test, y_test)
-
-                metrics = {
-                    "mse": mse,
-                    "r2": r2
-                }
-
-                score = mse
-                better = best_score is None or score < best_score
-
-            if better:
-                best_score = score
-                best_model = model
-                best_metrics = metrics
-
-            scored_population.append({
-                "model": model,
-                "score": score,
-                "metrics": metrics
-            })
-
-        # Sort
-        if problem_type == "classification":
-            scored_population.sort(key=lambda x: x["score"], reverse=True)
-        else:
-            scored_population.sort(key=lambda x: x["score"])
-
-        # Keep top 3
-        survivors = scored_population[:3]
-
-        # Create new generation
-        new_population = [item["model"] for item in survivors]
-
-        while len(new_population) < 6:
-
-            parent = survivors[np.random.randint(0, len(survivors))]["model"]
-
-            mutated_n = parent.n_estimators + np.random.randint(-20, 20)
-            mutated_n = max(10, mutated_n)
-
-            if problem_type == "classification":
-                child = RandomForestClassifier(n_estimators=mutated_n, random_state=42)
-            else:
-                child = RandomForestRegressor(n_estimators=mutated_n, random_state=42)
-
-            new_population.append(child)
-
-        population = new_population
-
-    # Prepare top models output
     top_models = []
 
-    for item in survivors:
-        model = item["model"]
-        metrics = item["metrics"]
+    for name, model in models.items():
+
+        model.fit(X_train, y_train)
+
+        if problem_type == "classification":
+
+            preds = model.predict(X_test)
+            acc = accuracy_score(y_test, preds)
+
+            metrics = {
+                "accuracy": acc
+            }
+
+            score = acc
+            better = best_score is None or score > best_score
+
+        else:
+
+            preds = model.predict(X_test)
+
+            mse = mean_squared_error(y_test, preds)
+            r2 = r2_score(y_test, preds)
+
+            metrics = {
+                "mse": mse,
+                "r2": r2
+            }
+
+            score = r2
+            better = best_score is None or score > best_score
+
+        if better:
+            best_score = score
+            best_model = model
+            best_metrics = metrics
 
         model_info = {
-            "model": type(model).__name__,
+            "model": name,
             **{k: round(v, 4) for k, v in metrics.items()}
         }
 
         top_models.append(model_info)
 
     return best_model, best_metrics, top_models
+
 
 
 
@@ -788,7 +743,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
 
             try:
 
-                converted = pd.to_datetime(df[col], errors="coerce")
+                converted = pd.to_datetime(df[col], errors="coerce", format="mixed")
 
                 valid_ratio = converted.notna().sum() / max(len(df),1)
 
@@ -875,11 +830,12 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
 
         X = df.drop(columns=[target_column])
         y = df[target_column]
+        X = auto_feature_engineering(X)
 
         # Detect problem type
         problem_type = detect_problem_type(df, target_column)
 
-        if problem_type == "classification" and y.dtype == "object":
+        if problem_type == "classification":
             y = LabelEncoder().fit_transform(y)
 
         # Numeric preprocessing
@@ -926,6 +882,8 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 score = accuracy_score(y_test, preds)
             else:
                 score = r2_score(y_test, preds)
+                if np.isnan(score):
+                    score = -999
 
             results.append({
                 "model": name,
