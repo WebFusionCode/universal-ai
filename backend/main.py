@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from kiwisolver import strength
 from prophet import Prophet
-
+import json
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -1503,6 +1503,68 @@ def download_code():
 
     return FileResponse("generated_pipeline.py")
 
+
+
+
+# =====================================================
+# EXPERIMENTS
+# =====================================================
+@app.get("/experiments")
+def get_experiments():
+
+    if not os.path.exists("experiments.json"):
+        return {"error": "No experiments found"}
+
+    with open("experiments.json", "r") as f:
+        data = json.load(f)
+
+    return {
+        "total_experiments": len(data),
+        "experiments": data[::-1]
+    }
+    
+    
+
+
+
+# =====================================================
+# AUTO INSIGHTS
+# =====================================================
+@app.get("/insights")
+def get_insights():
+
+    if not os.path.exists("experiments.json"):
+        return {"error": "No experiments found"}
+
+    with open("experiments.json", "r") as f:
+        data = json.load(f)
+
+    if len(data) == 0:
+        return {"error": "No experiments to analyze"}
+
+    # Extract scores
+    scores = [exp["score"] for exp in data]
+
+    # Best experiment
+    best_exp = max(data, key=lambda x: x["score"])
+
+    return {
+        "best_model": best_exp["model_name"],
+        "best_score": round(best_exp["score"], 4),
+        "best_version": best_exp["model_version"],
+        "total_experiments": len(data),
+        "average_score": round(sum(scores) / len(scores), 4)
+    }
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 # =====================================================
 # DOWNLOAD
 # =====================================================
