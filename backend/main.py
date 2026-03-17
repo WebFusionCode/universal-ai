@@ -2,11 +2,14 @@
 # IMPORTS
 # =====================================================
 
+from marshal import version
+
 from fastapi import FastAPI, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
+from kiwisolver import strength
 from prophet import Prophet
 
 import matplotlib.pyplot as plt
@@ -21,8 +24,10 @@ import shutil
 from PIL import Image
 from fastapi import WebSocket
 import asyncio
+from datetime import datetime
 
 # Torch
+from streamlit import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -38,9 +43,13 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 
+from models.transformer_models import TabTransformer
 from models.model_library import CLASSIFICATION_MODELS, REGRESSION_MODELS
 from utils.problem_detection import detect_problem_type
 from utils.feature_engineering import auto_feature_engineering
+from utils.hyperparameter_tuning import tune_random_forest
+from utils.automl_brain import analyze_dataset, recommend_models
+from utils.code_generator import generate_training_code
 
 
 
@@ -55,6 +64,8 @@ UPLOAD_FOLDER = "uploads"
 IMAGE_DATASET_FOLDER = "image_dataset"
 MODEL_PATH = "best_model.pkl"
 CNN_MODEL_PATH = "cnn_model.pth"
+MODEL_DIR = "models"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 training_progress = {"value": 0}
 
@@ -264,6 +275,12 @@ def genetic_model_search(X_train, X_test, y_train, y_test, problem_type):
     top_models = []
 
     for name, model in models.items():
+        
+        if "RandomForest" in name:
+
+            best_params = tune_random_forest(X_train, y_train, problem_type)
+
+            model.set_params(**best_params)
 
         model.fit(X_train, y_train)
 
@@ -862,11 +879,31 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             X, y, test_size=0.2, random_state=42
         )
 
-        # Select model pool
+        # ==========================
+        # AUTOML BRAIN SELECTION
+        # ==========================
+
+        dataset_info = analyze_dataset(X, y)
+
+        recommended = recommend_models(dataset_info, problem_type)
+
         if problem_type == "classification":
-            models = CLASSIFICATION_MODELS
+            base_models = CLASSIFICATION_MODELS
         else:
-            models = REGRESSION_MODELS
+            base_models = REGRESSION_MODELS
+
+        models = {}
+
+        for name in recommended:
+            if name in base_models:
+                models[name] = base_models[name]
+
+        # Add transformer if recommended
+        if "TabTransformer" in recommended and problem_type == "classification":
+            models["TabTransformer"] = TabTransformer(
+            input_dim=X_train.shape[1],
+            num_classes=len(np.unique(y_train))
+            )
 
         results = []
         best_model = None
@@ -874,16 +911,57 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
 
         for name, model in models.items():
 
-            model.fit(X_train, y_train)
+    # ==========================
+    # TRANSFORMER MODEL
+    # ==========================
+            if name == "TabTransformer":
 
-            preds = model.predict(X_test)
+                X_torch = torch.tensor(X_train.values, dtype=torch.float32).to(DEVICE)
+                y_torch = torch.tensor(y_train.values, dtype=torch.long).to(DEVICE)
 
-            if problem_type == "classification":
+                model = model.to(DEVICE)
+
+                optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+                loss_fn = nn.CrossEntropyLoss()
+
+                for epoch in range(10):
+
+                    optimizer.zero_grad()
+
+                    outputs = model(X_torch)
+
+                    loss = loss_fn(outputs, y_torch)
+
+                    loss.backward()
+
+                    optimizer.step()
+
+                with torch.no_grad():
+
+                    preds = model(
+                    torch.tensor(X_test.values, dtype=torch.float32).to(DEVICE)
+                    )
+
+                    preds = torch.argmax(preds, dim=1).cpu().numpy()
+
                 score = accuracy_score(y_test, preds)
+
+    # ==========================
+    # NORMAL ML MODELS
+    # ==========================
             else:
-                score = r2_score(y_test, preds)
-                if np.isnan(score):
-                    score = -999
+
+                model.fit(X_train, y_train)
+
+                preds = model.predict(X_test)
+
+                if problem_type == "classification":
+                    score = accuracy_score(y_test, preds)
+                else:
+                    score = r2_score(y_test, preds)
+
+                    if np.isnan(score):
+                        score = -999
 
             results.append({
                 "model": name,
@@ -895,12 +973,88 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 best_model = model
 
         top_models = sorted(results, key=lambda x: x["score"], reverse=True)
+        # ✅ VERSIONING STARTS HERE
+        existing_models = [f for f in os.listdir(MODEL_DIR) if f.startswith("model_v")]
+
+        version = len(existing_models) + 1
+
+        model_filename = f"model_v{version}.pkl"
+        model_path = os.path.join(MODEL_DIR, model_filename)
+        
+        joblib.dump(top_models, "leaderboard.pkl")
 
         joblib.dump({
             "model": best_model,
             "feature_columns": X.columns.tolist(),
             "problem_type": problem_type
         }, MODEL_PATH)
+        
+        
+        # ==========================
+        # EXPERIMENT TRACKING
+        # ==========================
+
+        experiment = {
+            "model_version": model_filename,
+            "model_name": type(best_model).__name__,
+            "problem_type": problem_type,
+            "score": float(best_score),
+            "rows": len(df),
+            "columns": len(df.columns),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        # Load existing logs
+        if os.path.exists("experiments.json"):
+            with open("experiments.json", "r") as f:
+                logs = json.load(f)
+        else:
+            logs = []
+
+        # Append new experiment
+        logs.append(experiment)
+
+        # Save back
+        with open("experiments.json", "w") as f:
+            json.dump(logs, f, indent=4)
+        # ==========================
+        # DATASET QUALITY
+        # ==========================
+        quality = dataset_quality_score(df)
+
+        # ==========================
+        # MODEL STRENGTH
+        # ==========================
+        strength = model_strength_summary(problem_type, {
+            "accuracy": best_score if problem_type == "classification" else None,
+            "r2": best_score if problem_type == "regression" else None
+        })
+
+        # ==========================
+        # EXPLANATION TEXT
+        # ==========================
+        explanation = generate_explanation_text(problem_type, strength)
+
+        # ==========================
+        # SAVE REPORT
+        # ==========================
+        report = {
+            "dataset_quality": quality,
+            "model_strength": strength,
+            "explanation": explanation
+        }
+
+        joblib.dump(report, "training_report.pkl")  
+        
+        generated_code = generate_training_code(
+            model_name=type(best_model).__name__,
+            feature_columns=X.columns.tolist(),
+            problem_type=problem_type,
+            target_column=target_column
+        )
+        
+        with open("generated_pipeline.py", "w") as f:
+            f.write(generated_code)
 
         if problem_type == "classification":
 
@@ -910,7 +1064,9 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 "target_column": target_column,
                 "best_model": type(best_model).__name__,
                 "accuracy": round(best_score,4),
-                "top_models": top_models
+                "top_models": top_models,
+                "generated_code": generated_code,
+                "model_version": model_filename
             }
 
         else:
@@ -924,7 +1080,9 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 "best_model": type(best_model).__name__,
                 "mse": round(mse,4),
                 "r2": round(best_score,4),
-                "top_models": top_models
+                "top_models": top_models,       
+                "generated_code": generated_code,
+                "model_version": model_filename
             }
 
     return {"error": "Unsupported dataset"}
@@ -1017,7 +1175,11 @@ async def predict(file: UploadFile = File(...)):
         else:
             return {"error": "Unsupported file format"}
 
-        df.columns = df.columns.str.strip()
+        df.columns = (
+            df.columns
+            .str.strip()
+            .str.replace(r"[^\w]+", "_", regex=True)
+        )
 
         # Validate required columns
         missing_cols = [col for col in feature_columns if col not in df.columns]
@@ -1330,7 +1492,16 @@ def model_explain():
 
 
 
+# =====================================================
+# DOWNLOAD CODE
+# =====================================================
+@app.get("/download-code")
+def download_code():
 
+    if not os.path.exists("generated_pipeline.py"):
+        return {"error": "No generated code found. Train a model first."}
+
+    return FileResponse("generated_pipeline.py")
 
 # =====================================================
 # DOWNLOAD
@@ -1340,6 +1511,31 @@ def download_model():
     if os.path.exists(MODEL_PATH):
         return FileResponse(MODEL_PATH)
     return {"error":"No trained model"}
+
+
+@app.get("/leaderboard")
+def get_leaderboard():
+
+    if not os.path.exists("leaderboard.pkl"):
+        return {"error": "No leaderboard found. Train model first."}
+
+    leaderboard = joblib.load("leaderboard.pkl")
+
+    return {
+        "leaderboard": leaderboard
+    }
+
+
+
+@app.get("/training-report")
+def get_training_report():
+
+    if not os.path.exists("training_report.pkl"):
+        return {"error": "No report found. Train model first."}
+
+    report = joblib.load("training_report.pkl")
+
+    return report
 
 
 
