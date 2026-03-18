@@ -1,15 +1,11 @@
 # =====================================================
 # IMPORTS
 # =====================================================
-
-from marshal import version
-
 from fastapi import FastAPI, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-from kiwisolver import strength
 from prophet import Prophet
 import json
 import matplotlib.pyplot as plt
@@ -27,7 +23,6 @@ import asyncio
 from datetime import datetime
 
 # Torch
-from streamlit import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -67,7 +62,12 @@ CNN_MODEL_PATH = "cnn_model.pth"
 MODEL_DIR = "models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-training_progress = {"value": 0}
+training_progress = {
+    "progress": 0,
+    "status": "Idle",
+    "logs": [],
+    "eta": None
+}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(IMAGE_DATASET_FOLDER, exist_ok=True)
@@ -76,6 +76,22 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def update_progress(progress=None, status=None, log=None, eta=None):
+    if progress is not None:
+        training_progress["progress"] = progress
+
+    if status is not None:
+        training_progress["status"] = status
+
+    if log is not None:
+        training_progress["logs"].append(log)
+
+        # keep last 20 logs only
+        training_progress["logs"] = training_progress["logs"][-20:]
+
+    if eta is not None:
+        training_progress["eta"] = eta
 
 
 
@@ -735,9 +751,16 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             buffer.write(await file.read())
 
         if filename.endswith(".csv"):
-            df = pd.read_csv(file_path, sep=None, engine="python")
+            try:
+                df = pd.read_csv(file_path, sep=None, engine="python")
+            except Exception:
+                    return {"error": "Failed to read CSV file"}
+
         else:
-            df = pd.read_excel(file_path)
+            try:
+                df = pd.read_excel(file_path)
+            except Exception:
+                return {"error": "Failed to read Excel file"}
 
         df.columns = df.columns.str.strip()
 
@@ -847,7 +870,10 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
 
         X = df.drop(columns=[target_column])
         y = df[target_column]
-        X = auto_feature_engineering(X)
+        try:
+            X = auto_feature_engineering(X)
+        except Exception as e:
+            return {"error": f"Feature engineering failed: {str(e)}"}
 
         # Detect problem type
         problem_type = detect_problem_type(df, target_column)
@@ -973,6 +999,9 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 best_model = model
 
         top_models = sorted(results, key=lambda x: x["score"], reverse=True)
+        
+        
+        
         # ✅ VERSIONING STARTS HERE
         existing_models = [f for f in os.listdir(MODEL_DIR) if f.startswith("model_v")]
 
@@ -983,6 +1012,13 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
         
         joblib.dump(top_models, "leaderboard.pkl")
 
+        joblib.dump({
+            "model": best_model,
+            "feature_columns": X.columns.tolist(),
+            "problem_type": problem_type
+        }, model_path)
+        
+        
         joblib.dump({
             "model": best_model,
             "feature_columns": X.columns.tolist(),
