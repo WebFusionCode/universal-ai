@@ -36,6 +36,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 from models.transformer_models import TabTransformer
@@ -262,6 +263,75 @@ def detect_time_series(df, target_column):
         except:
             continue
     return False, None
+
+
+
+
+
+
+
+
+
+
+
+
+
+def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_type):
+
+    try:
+        if name == "TabTransformer":
+
+            X_torch = torch.tensor(X_train.values, dtype=torch.float32).to(DEVICE)
+            y_torch = torch.tensor(y_train.values, dtype=torch.long).to(DEVICE)
+
+            model = model.to(DEVICE)
+
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+            loss_fn = nn.CrossEntropyLoss()
+
+            for epoch in range(10):
+                optimizer.zero_grad()
+                outputs = model(X_torch)
+                loss = loss_fn(outputs, y_torch)
+                loss.backward()
+                optimizer.step()
+
+            with torch.no_grad():
+                preds = model(
+                    torch.tensor(X_test.values, dtype=torch.float32).to(DEVICE)
+                )
+                preds = torch.argmax(preds, dim=1).cpu().numpy()
+
+            score = accuracy_score(y_test, preds)
+
+        else:
+
+            model.fit(X_train, y_train)
+            preds = model.predict(X_test)
+
+            if problem_type == "classification":
+                score = accuracy_score(y_test, preds)
+            else:
+                score = r2_score(y_test, preds)
+                if np.isnan(score):
+                    score = -999
+
+        return {
+            "model": name,
+            "score": float(score),
+            "trained_model": model
+        }
+
+    except Exception as e:
+        return {
+            "model": name,
+            "score": -999,
+            "error": str(e),
+            "trained_model": None
+        }
+
+
+
 
 
 
@@ -744,6 +814,8 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
     # TABULAR / TIME SERIES
     # ==========================================
     if filename.endswith(".csv") or filename.endswith(".xlsx"):
+        start_time = datetime.now()
+        update_progress(5, "Loading dataset", "Dataset loading started...")
 
         file_path = os.path.join(UPLOAD_FOLDER, file.filename)
 
@@ -763,6 +835,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 return {"error": "Failed to read Excel file"}
 
         df.columns = df.columns.str.strip()
+        update_progress(10, "Dataset Loaded", "Dataset successfully loaded")
 
         df = df.dropna(axis=1, how="all")
         df = df.dropna(axis=0, how="all")
@@ -870,8 +943,10 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
 
         X = df.drop(columns=[target_column])
         y = df[target_column]
+        update_progress(15, "Feature Engineering", "Generating features...")
         try:
             X = auto_feature_engineering(X)
+            update_progress(25, "Feature Engineering Done", "Features created")
         except Exception as e:
             return {"error": f"Feature engineering failed: {str(e)}"}
 
@@ -900,7 +975,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             X[col] = LabelEncoder().fit_transform(X[col])
 
         X = X.fillna(0)
-
+        update_progress(30, "Splitting Data", "Preparing train/test split")
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42
         )
@@ -934,71 +1009,47 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
         results = []
         best_model = None
         best_score = -999
+        update_progress(40, "Training Models", "Starting model training...")
 
-        for name, model in models.items():
+        futures = []
 
-    # ==========================
-    # TRANSFORMER MODEL
-    # ==========================
-            if name == "TabTransformer":
+        with ThreadPoolExecutor(max_workers=4) as executor:
 
-                X_torch = torch.tensor(X_train.values, dtype=torch.float32).to(DEVICE)
-                y_torch = torch.tensor(y_train.values, dtype=torch.long).to(DEVICE)
-
-                model = model.to(DEVICE)
-
-                optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-                loss_fn = nn.CrossEntropyLoss()
-
-                for epoch in range(10):
-
-                    optimizer.zero_grad()
-
-                    outputs = model(X_torch)
-
-                    loss = loss_fn(outputs, y_torch)
-
-                    loss.backward()
-
-                    optimizer.step()
-
-                with torch.no_grad():
-
-                    preds = model(
-                    torch.tensor(X_test.values, dtype=torch.float32).to(DEVICE)
+            for name, model in models.items():
+                futures.append(
+                    executor.submit(
+                        train_single_model,
+                        name, model,
+                        X_train, X_test,
+                        y_train, y_test,
+                        problem_type
                     )
+                )
 
-                    preds = torch.argmax(preds, dim=1).cpu().numpy()
+            for future in as_completed(futures):
 
-                score = accuracy_score(y_test, preds)
+                result = future.result()
 
-    # ==========================
-    # NORMAL ML MODELS
-    # ==========================
-            else:
+                name = result["model"]
+                score = result["score"]
+                trained_model = result["trained_model"]
 
-                model.fit(X_train, y_train)
+                update_progress(
+                    status=f"Completed {name}",
+                    log=f"{name} finished with score {round(score,4)}"
+                )
 
-                preds = model.predict(X_test)
+                results.append({
+                    "model": name,
+                    "score": score
+                })
 
-                if problem_type == "classification":
-                    score = accuracy_score(y_test, preds)
-                else:
-                    score = r2_score(y_test, preds)
-
-                    if np.isnan(score):
-                        score = -999
-
-            results.append({
-                "model": name,
-                "score": float(score)
-            })
-
-            if score > best_score:
-                best_score = score
-                best_model = model
+                if score > best_score:
+                    best_score = score
+                    best_model = trained_model
 
         top_models = sorted(results, key=lambda x: x["score"], reverse=True)
+        update_progress(85, "Finalizing", "Selecting best model...")
         
         
         
@@ -1024,6 +1075,8 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             "feature_columns": X.columns.tolist(),
             "problem_type": problem_type
         }, MODEL_PATH)
+        
+        update_progress(95, "Saving", "Saving model and reports...")
         
         
         # ==========================
@@ -1093,6 +1146,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             f.write(generated_code)
 
         if problem_type == "classification":
+            update_progress(100, "Completed", "Training completed successfully", eta="0 sec")
 
             return {
                 "problem_type": "Classification",
@@ -1104,10 +1158,12 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 "generated_code": generated_code,
                 "model_version": model_filename
             }
+                
 
         else:
 
             mse = mean_squared_error(y_test, best_model.predict(X_test))
+            update_progress(100, "Completed", "Training completed successfully", eta="0 sec")
 
             return {
                 "problem_type": "Regression",
