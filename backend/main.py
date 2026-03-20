@@ -336,6 +336,41 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
 
 
 
+def filter_models(models, X, y, problem_type):
+
+    selected_models = {}
+
+    num_rows = len(X)
+    num_cols = X.shape[1]
+
+    for name, model in models.items():
+
+        # 🚫 Skip SVM for large datasets
+        if "SVM" in name and num_rows > 20000:
+            continue
+
+        # 🚫 Skip KNN for high dimensional data
+        if "KNN" in name and num_cols > 50:
+            continue
+
+        # 🚫 Skip LogisticRegression for too complex data
+        if "LogisticRegression" in name and num_cols > 100:
+            continue
+
+        # 🚫 Skip LinearRegression if classification
+        if problem_type == "classification" and "LinearRegression" in name:
+            continue
+
+        # 🚫 Skip SVR if dataset is huge
+        if "SVR" in name and num_rows > 15000:
+            continue
+
+        # ✅ Keep model
+        selected_models[name] = model
+
+    return selected_models
+
+
 
 
 
@@ -998,6 +1033,12 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
         for name in recommended:
             if name in base_models:
                 models[name] = base_models[name]
+                
+        models = filter_models(models, X, y, problem_type)
+        
+        update_progress(
+            log=f"{len(models)} models selected after filtering"
+        )
 
         # Add transformer if recommended
         if "TabTransformer" in recommended and problem_type == "classification":
