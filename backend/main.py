@@ -1,7 +1,7 @@
 # =====================================================
 # IMPORTS
 # =====================================================
-from fastapi import FastAPI, File, UploadFile, Form, Request
+from fastapi import FastAPI, File, UploadFile, Form, Request, params
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +17,7 @@ import io
 import joblib
 import zipfile
 import shutil
+import shap
 from PIL import Image
 from fastapi import WebSocket
 import asyncio
@@ -277,6 +278,8 @@ def detect_time_series(df, target_column):
 
 
 def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_type):
+    
+    start = datetime.now()
 
     try:
         if name == "TabTransformer":
@@ -302,9 +305,19 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
                 )
                 preds = torch.argmax(preds, dim=1).cpu().numpy()
 
-            score = accuracy_score(y_test, preds)
+            acc = accuracy_score(y_test, preds)
+
+            score = acc
+            metrics = {
+                "accuracy": acc
+            }
 
         else:
+            
+            params = auto_tune_model(name, model, X_train, y_train, problem_type)
+
+            if params:
+                model.set_params(**params)
 
             model.fit(X_train, y_train)
             preds = model.predict(X_test)
@@ -312,14 +325,27 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
             if problem_type == "classification":
                 score = accuracy_score(y_test, preds)
             else:
-                score = r2_score(y_test, preds)
+                r2 = r2_score(y_test, preds)
+                mse = mean_squared_error(y_test, preds)
+
+                score = r2
+                metrics = {
+                    "r2": r2,
+                    "mse": mse
+                }     
+                  
                 if np.isnan(score):
                     score = -999
 
+        end = datetime.now()
+        duration = (end - start).total_seconds()
+
         return {
-            "model": name,
+            "model": os.name,
             "score": float(score),
-            "trained_model": model
+            "trained_model": model,
+            "time": duration,
+            "metrics": metrics
         }
 
     except Exception as e:
@@ -369,6 +395,123 @@ def filter_models(models, X, y, problem_type):
         selected_models[name] = model
 
     return selected_models
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =====================================================
+# AI INSIGHTS ENGINE (SMART ANALYSIS)
+# =====================================================
+def generate_ai_insights(df, problem_type, best_model_name, best_score):
+
+    insights = []
+
+    # Dataset size insight
+    if len(df) < 500:
+        insights.append("Dataset is small. Consider adding more data for better performance.")
+    elif len(df) > 50000:
+        insights.append("Large dataset detected. Consider using deep learning models.")
+
+    # Feature insight
+    if df.shape[1] > 50:
+        insights.append("High number of features. Feature selection may improve performance.")
+
+    # Missing values
+    missing_ratio = df.isna().sum().sum() / (df.shape[0] * df.shape[1])
+    if missing_ratio > 0.2:
+        insights.append("High missing values detected. Data cleaning is recommended.")
+
+    # Model performance
+    if problem_type == "classification":
+        if best_score > 0.9:
+            insights.append(f"{best_model_name} is performing excellently.")
+        elif best_score > 0.75:
+            insights.append(f"{best_model_name} is performing well, but tuning may improve results.")
+        else:
+            insights.append("Model performance is low. Try feature engineering or more data.")
+
+    else:
+        if best_score > 0.85:
+            insights.append(f"{best_model_name} has strong predictive power.")
+        elif best_score > 0.6:
+            insights.append("Model is moderate. Consider tuning or better features.")
+        else:
+            insights.append("Poor regression performance. Try different models or transformations.")
+
+    # General suggestion
+    insights.append("Try ensemble models for better accuracy.")
+    insights.append("Hyperparameter tuning can further improve performance.")
+
+    return insights
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =====================================================
+# AUTO HYPERPARAMETER TUNING
+# =====================================================
+def auto_tune_model(name, model, X_train, y_train, problem_type):
+
+    try:
+
+        # RANDOM FOREST
+        if "RandomForest" in name:
+            return tune_random_forest(X_train, y_train, problem_type)
+
+        # LOGISTIC REGRESSION
+        if "LogisticRegression" in name:
+            return {
+                "C": random.choice([0.1, 1, 10]),
+                "max_iter": random.choice([100, 200])
+            }
+
+        # SVM
+        if "SVM" in name:
+            return {
+                "C": random.choice([0.1, 1, 10]),
+                "kernel": random.choice(["linear", "rbf"])
+            }
+
+        # KNN
+        if "KNN" in name:
+            return {
+                "n_neighbors": random.choice([3,5,7,9])
+            }
+
+        # SVR
+        if "SVR" in name:
+            return {
+                "C": random.choice([0.1, 1, 10])
+            }
+
+        return {}
+
+    except:
+        return {}
+
+
+
+
+
 
 
 
@@ -1082,7 +1225,9 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
 
                 results.append({
                     "model": name,
-                    "score": score
+                    "score": score,
+                    "time": result.get("time", 0),
+                    "metrics": result.get("metrics", {})
                 })
 
                 if score > best_score:
@@ -1090,6 +1235,9 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                     best_model = trained_model
 
         top_models = sorted(results, key=lambda x: x["score"], reverse=True)
+        for i, model in enumerate(top_models):
+            model["rank"] = i + 1
+        best_model_name = top_models[0]["model"]
         update_progress(85, "Finalizing", "Selecting best model...")
         
         
@@ -1102,7 +1250,13 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
         model_filename = f"model_v{version}.pkl"
         model_path = os.path.join(MODEL_DIR, model_filename)
         
-        joblib.dump(top_models, "leaderboard.pkl")
+        leaderboard_data = {
+            "best_model": best_model_name,
+            "total_models": len(top_models),
+            "models": top_models
+        }
+
+        joblib.dump(leaderboard_data, "leaderboard.pkl")
 
         joblib.dump({
             "model": best_model,
@@ -1174,7 +1328,14 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             "explanation": explanation
         }
 
-        joblib.dump(report, "training_report.pkl")  
+        joblib.dump(report, "training_report.pkl")
+        
+        ai_insights = generate_ai_insights(
+            df,
+            problem_type,
+            type(best_model).__name__,
+            best_score
+        )
         
         generated_code = generate_training_code(
             model_name=type(best_model).__name__,
@@ -1197,7 +1358,9 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 "accuracy": round(best_score,4),
                 "top_models": top_models,
                 "generated_code": generated_code,
-                "model_version": model_filename
+                "model_version": model_filename,
+                "ai_insights": ai_insights,
+                
             }
                 
 
@@ -1215,7 +1378,8 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 "r2": round(best_score,4),
                 "top_models": top_models,       
                 "generated_code": generated_code,
-                "model_version": model_filename
+                "model_version": model_filename,
+                "ai_insights": ai_insights,
             }
 
     return {"error": "Unsupported dataset"}
@@ -1595,29 +1759,68 @@ def model_explain():
 # =====================================================
 # SHAP
 # =====================================================
-# @app.post("/shap-explain")
-# async def shap_explain(file: UploadFile = File(...)):
+@app.post("/shap-explain")
+async def shap_explain(file: UploadFile = File(...)):
 
-#     if not os.path.exists(MODEL_PATH):
-#         return {"error":"No trained model"}
+    if not os.path.exists(MODEL_PATH):
+        return {"error": "No trained model found"}
 
-#     model_package=joblib.load(MODEL_PATH)
+    model_package = joblib.load(MODEL_PATH)
 
-#     if model_package["problem_type"]=="time_series":
-#         return {"message":"SHAP not supported for time-series"}
+    if model_package["problem_type"] in ["time_series", "time_series_multi"]:
+        return {"error": "SHAP not supported for time-series"}
 
-#     model=model_package["model"]
-#     features=model_package["feature_columns"]
+    model = model_package["model"]
+    feature_columns = model_package["feature_columns"]
 
-#     df=pd.read_csv(file.file)
-#     df=df[features]
+    try:
+        # Load input file
+        if file.filename.endswith(".csv"):
+            df = pd.read_csv(file.file, sep=None, engine="python")
+        elif file.filename.endswith(".xlsx"):
+            df = pd.read_excel(file.file)
+        else:
+            return {"error": "Unsupported file format"}
 
-#     explainer=shap.TreeExplainer(model)
-#     shap_values=explainer.shap_values(df)
-#     shap_values=np.abs(np.array(shap_values))
-#     importance=np.mean(shap_values,axis=0)
+        df = df[feature_columns]
 
-#     return dict(zip(features,importance.tolist()))
+        # Preprocessing (same as predict)
+        numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns
+        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+
+        categorical_cols = df.select_dtypes(include=["object"]).columns
+        for col in categorical_cols:
+            df[col] = LabelEncoder().fit_transform(df[col].astype(str))
+
+        df = df.fillna(0)
+
+        # 🔥 SHAP EXPLAINER
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(df)
+
+        # Global importance
+        importance = np.abs(shap_values.values).mean(axis=0)
+
+        feature_importance = dict(
+            sorted(
+                zip(feature_columns, importance),
+                key=lambda x: x[1],
+                reverse=True
+            )
+        )
+
+        # Sample explanation (first row)
+        sample_explanation = dict(
+            zip(feature_columns, shap_values.values[0].tolist())
+        )
+
+        return {
+            "feature_importance": feature_importance,
+            "sample_explanation": sample_explanation
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
 
 
 
@@ -1626,15 +1829,165 @@ def model_explain():
 
 
 # =====================================================
-# DOWNLOAD CODE
+# DOWNLOAD CODE (MULTI-FORMAT)
 # =====================================================
-@app.get("/download-code")
-def download_code():
+@app.get("/download-code/{format}")
+def download_code(format: str):
 
     if not os.path.exists("generated_pipeline.py"):
         return {"error": "No generated code found. Train a model first."}
 
-    return FileResponse("generated_pipeline.py")
+    # ==========================
+    # PYTHON SCRIPT
+    # ==========================
+    if format == "python":
+        return FileResponse("generated_pipeline.py", filename="pipeline.py")
+
+    # ==========================
+    # JUPYTER NOTEBOOK
+    # ==========================
+    elif format == "notebook":
+
+        with open("generated_pipeline.py", "r") as f:
+            code_lines = f.read().split("\n")
+
+        notebook = {
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "metadata": {},
+                    "source": [line + "\n" for line in code_lines],
+                    "outputs": [],
+                    "execution_count": None
+                }
+            ],
+            "metadata": {
+                "kernelspec": {
+                    "name": "python3",
+                    "display_name": "Python 3"
+                }
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5
+        }
+
+        notebook_path = "generated_notebook.ipynb"
+
+        with open(notebook_path, "w") as f:
+            json.dump(notebook, f)
+
+        return FileResponse(notebook_path)
+
+    # ==========================
+    # FASTAPI TEMPLATE
+    # ==========================
+    elif format == "api":
+
+        api_code = """
+from fastapi import FastAPI
+import joblib
+import pandas as pd
+
+app = FastAPI()
+
+model = joblib.load("model.pkl")
+
+@app.post("/predict")
+def predict(data: dict):
+    df = pd.DataFrame([data])
+    prediction = model.predict(df)
+    return {"prediction": prediction.tolist()}
+"""
+
+        api_path = "generated_api.py"
+
+        with open(api_path, "w") as f:
+            f.write(api_code)
+
+        return FileResponse(api_path)
+
+    # ==========================
+    # REQUIREMENTS.TXT
+    # ==========================
+    elif format == "requirements":
+
+        requirements = """
+pandas
+numpy
+scikit-learn
+joblib
+fastapi
+uvicorn
+"""
+
+        req_path = "requirements.txt"
+
+        with open(req_path, "w") as f:
+            f.write(requirements.strip())
+
+        return FileResponse(req_path)
+
+    # ==========================
+    # DOCKER PACKAGE
+    # ==========================
+    elif format == "docker":
+
+        dockerfile = """
+FROM python:3.10
+
+WORKDIR /app
+
+COPY . .
+
+RUN pip install -r requirements.txt
+
+CMD ["python", "generated_pipeline.py"]
+"""
+
+        with open("Dockerfile", "w") as f:
+            f.write(dockerfile.strip())
+
+        # Ensure requirements exist
+        with open("requirements.txt", "w") as f:
+            f.write("pandas\nnumpy\nscikit-learn\njoblib\n")
+
+        zip_path = "docker_package.zip"
+
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            zipf.write("generated_pipeline.py")
+            zipf.write("requirements.txt")
+            zipf.write("Dockerfile")
+
+        return FileResponse(zip_path)
+
+    # ==========================
+    # FULL PROJECT ZIP
+    # ==========================
+    elif format == "project":
+
+        zip_path = "full_project.zip"
+
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+
+            if os.path.exists("generated_pipeline.py"):
+                zipf.write("generated_pipeline.py")
+
+            if os.path.exists(MODEL_PATH):
+                zipf.write(MODEL_PATH)
+
+            # add requirements
+            with open("requirements.txt", "w") as f:
+                f.write("pandas\nnumpy\nscikit-learn\njoblib\n")
+
+            zipf.write("requirements.txt")
+
+        return FileResponse(zip_path)
+
+    # ==========================
+    # INVALID FORMAT
+    # ==========================
+    else:
+        return {"error": "Format not supported"}
 
 
 
@@ -1696,16 +2049,51 @@ def get_insights():
     
     
     
+# =====================================================
+# AI INSIGHTS (CHATGPT-LIKE)
+# =====================================================
+@app.get("/ai-insights")
+def get_ai_insights():
+
+    if not os.path.exists("experiments.json"):
+        return {"error": "No experiments found"}
+
+    with open("experiments.json", "r") as f:
+        data = json.load(f)
+
+    if len(data) == 0:
+        return {"error": "No experiments available"}
+
+    latest = data[-1]
+
+    insights = [
+        f"Best model: {latest['model_name']}",
+        f"Score: {round(latest['score'],4)}",
+        f"Dataset rows: {latest['rows']}"
+    ]
+
+    return {
+        "insights": insights
+    }    
+    
+    
+    
+    
+    
     
     
 # =====================================================
 # DOWNLOAD
 # =====================================================
-@app.get("/download-model")
-def download_model():
-    if os.path.exists(MODEL_PATH):
-        return FileResponse(MODEL_PATH)
-    return {"error":"No trained model"}
+@app.get("/download-model/{version}")
+def download_model(version: str):
+
+    model_path = os.path.join(MODEL_DIR, version)
+
+    if os.path.exists(model_path):
+        return FileResponse(model_path)
+
+    return {"error": "Model not found"}
 
 
 @app.get("/leaderboard")
@@ -1716,9 +2104,7 @@ def get_leaderboard():
 
     leaderboard = joblib.load("leaderboard.pkl")
 
-    return {
-        "leaderboard": leaderboard
-    }
+    return leaderboard
 
 
 
