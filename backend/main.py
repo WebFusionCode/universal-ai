@@ -1,7 +1,7 @@
 # =====================================================
 # IMPORTS
 # =====================================================
-from fastapi import FastAPI, File, UploadFile, Form, Request, params
+from fastapi import FastAPI, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -18,15 +18,17 @@ import joblib
 import zipfile
 import shutil
 import shap
+from pathlib import Path
 from PIL import Image
 from fastapi import WebSocket
 import asyncio
 from datetime import datetime
-
+from jose import jwt
+from passlib.context import CryptContext
+from datetime import timedelta
 # Torch
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 
@@ -57,11 +59,33 @@ from utils.code_generator import generate_training_code
 
 app = FastAPI()
 
-UPLOAD_FOLDER = "uploads"
-IMAGE_DATASET_FOLDER = "image_dataset"
-MODEL_PATH = "best_model.pkl"
-CNN_MODEL_PATH = "cnn_model.pth"
-MODEL_DIR = "models"
+SECRET_KEY = "automl_secret"
+ALGORITHM = "HS256"
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+fake_users_db = {}
+
+
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
+
+UPLOAD_FOLDER = str(BASE_DIR / "uploads")
+IMAGE_DATASET_FOLDER = str(BASE_DIR / "image_dataset")
+MODEL_PATH = str(BASE_DIR / "best_model.pkl")
+CNN_MODEL_PATH = str(BASE_DIR / "cnn_model.pth")
+MODEL_DIR = str(BASE_DIR / "models")
+GENERATED_PIPELINE_PATH = str(BASE_DIR / "generated_pipeline.py")
+GENERATED_NOTEBOOK_PATH = str(BASE_DIR / "generated_notebook.ipynb")
+GENERATED_API_PATH = str(BASE_DIR / "generated_api.py")
+GENERATED_REQUIREMENTS_PATH = str(BASE_DIR / "generated_requirements.txt")
+GENERATED_DOCKERFILE_PATH = str(BASE_DIR / "generated_Dockerfile")
+DOCKER_PACKAGE_PATH = str(BASE_DIR / "docker_package.zip")
+FULL_PROJECT_ZIP_PATH = str(BASE_DIR / "full_project.zip")
+EXPERIMENTS_PATH = str(BASE_DIR / "experiments.json")
+LEADERBOARD_PATH = str(BASE_DIR / "leaderboard.pkl")
+TRAINING_REPORT_PATH = str(BASE_DIR / "training_report.pkl")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 training_progress = {
@@ -74,8 +98,8 @@ training_progress = {
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(IMAGE_DATASET_FOLDER, exist_ok=True)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -106,15 +130,16 @@ def update_progress(progress=None, status=None, log=None, eta=None):
 # =====================================================
 @app.post("/preview")
 async def preview_dataset(file: UploadFile = File(...)):
-
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    filename = file.filename if file.filename is not None else "unknown"
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
 
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
 
-    if file.filename.endswith(".csv"):
+    filename_safe = file.filename if file.filename is not None else ""
+    if filename_safe.endswith(".csv"):
         df = pd.read_csv(file_path, sep=None, engine="python")
-    elif file.filename.endswith(".xlsx"):
+    elif filename_safe.endswith(".xlsx"):
         df = pd.read_excel(file_path)
     else:
         return {"error": "Unsupported file format"}
@@ -232,7 +257,6 @@ def genetic_evolution(X_train, X_test, y_train, y_test, problem_type, generation
         new_population = survivors.copy()
 
         while len(new_population) < population_size:
-            parent = random.choice(survivors)
             child = create_individual()  # fresh mutation
             new_population.append(child)
 
@@ -258,10 +282,11 @@ def detect_time_series(df, target_column):
             continue
         try:
             parsed = pd.to_datetime(df[col], errors="raise")
-            if parsed.nunique() > len(parsed) * 0.5:
+            parsed_series = pd.Series(parsed)
+            if parsed_series.nunique() > len(parsed_series) * 0.5:
                 if pd.api.types.is_numeric_dtype(df[target_column]):
                     return True, col
-        except:
+        except Exception:
             continue
     return False, None
 
@@ -324,6 +349,7 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
 
             if problem_type == "classification":
                 score = accuracy_score(y_test, preds)
+                metrics = {"accuracy": score}
             else:
                 r2 = r2_score(y_test, preds)
                 mse = mean_squared_error(y_test, preds)
@@ -341,7 +367,7 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
         duration = (end - start).total_seconds()
 
         return {
-            "model": os.name,
+            "model": name,
             "score": float(score),
             "trained_model": model,
             "time": duration,
@@ -767,12 +793,12 @@ def universal_image_organizer(root_folder):
 
     for current_root, dirs, files in os.walk(root_folder):
 
-        # 🔥 Skip normalized folder itself
+        # Skip normalized folder itself
         if "__normalized__" in current_root:
             continue
 
         for file in files:
-            if file.lower().endswith(image_extensions):
+            if (file or "").lower().endswith(image_extensions):
 
                 full_path = os.path.join(current_root, file)
 
@@ -830,15 +856,16 @@ def universal_image_organizer(root_folder):
 # =====================================================
 @app.post("/preview-columns")
 async def preview_columns(file: UploadFile = File(...)):
-
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    filename = file.filename if file.filename is not None else "unknown"
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
 
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
 
-    if file.filename.endswith(".csv"):
+    filename_safe = file.filename if file.filename is not None else ""
+    if filename_safe.endswith(".csv"):
         df = pd.read_csv(file_path, nrows=5)
-    elif file.filename.endswith(".xlsx"):
+    elif filename_safe.endswith(".xlsx"):
         df = pd.read_excel(file_path, nrows=5)
     else:
         return {"error": "Unsupported format"}
@@ -890,7 +917,45 @@ def dataset_quality_score(df):
     
     
     
-    
+
+
+
+
+
+
+
+@app.post("/signup")
+def signup(user: dict):
+    email = user["email"]
+    password = pwd_context.hash(user["password"])
+
+    fake_users_db[email] = password
+
+    return {"message": "User created"}
+
+
+
+
+
+
+@app.post("/login")
+def login(user: dict):
+    email = user["email"]
+    password = user["password"]
+
+    if email not in fake_users_db:
+        return {"error": "User not found"}
+
+    if not pwd_context.verify(password, fake_users_db[email]):
+        return {"error": "Invalid password"}
+
+    token = jwt.encode({"sub": email}, SECRET_KEY, algorithm=ALGORITHM)
+
+    return {"token": token}
+
+
+
+ 
     
     
     
@@ -901,15 +966,14 @@ def dataset_quality_score(df):
 # =====================================================
 @app.post("/train")
 async def auto_train(file: UploadFile = File(...), target_column: str = Form(None)):
-
-    filename = file.filename.lower()
+    filename = (file.filename if file.filename is not None else "").lower()
 
     # ==========================================
     # IMAGE DATASET
     # ==========================================
     if filename.endswith(".zip"):
 
-        zip_path = os.path.join(UPLOAD_FOLDER, file.filename)
+        zip_path = os.path.join(UPLOAD_FOLDER, file.filename or "unknown")
         with open(zip_path, "wb") as buffer:
             buffer.write(await file.read())
 
@@ -952,7 +1016,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             lr=0.001
         )
 
-        training_progress["value"] = 0
+        training_progress["progress"] = 0
         total_epochs = 5
 
         for epoch in range(total_epochs):
@@ -992,10 +1056,9 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
     # TABULAR / TIME SERIES
     # ==========================================
     if filename.endswith(".csv") or filename.endswith(".xlsx"):
-        start_time = datetime.now()
         update_progress(5, "Loading dataset", "Dataset loading started...")
 
-        file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+        file_path = os.path.join(UPLOAD_FOLDER, file.filename or "unknown")
 
         with open(file_path, "wb") as buffer:
             buffer.write(await file.read())
@@ -1033,12 +1096,9 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                 continue
 
             try:
-
                 converted = pd.to_datetime(df[col], errors="coerce", format="mixed")
-
-                valid_ratio = converted.notna().sum() / max(len(df),1)
-
-                unique_ratio = converted.nunique() / max(len(df),1)
+                valid_ratio = pd.notna(converted).sum() / max(len(df), 1)
+                unique_ratio = pd.Series(converted).nunique() / max(len(df), 1)
 
                 if (
                     valid_ratio > 0.8 and
@@ -1197,6 +1257,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
 
         futures = []
 
+        start_time = datetime.now()
         with ThreadPoolExecutor(max_workers=4) as executor:
 
             for name, model in models.items():
@@ -1229,6 +1290,13 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                     "time": result.get("time", 0),
                     "metrics": result.get("metrics", {})
                 })
+                
+                elapsed = (datetime.now() - start_time).total_seconds()
+                avg_time = elapsed / max(len(results), 1)
+                remaining = len(models) - len(results)
+                eta_seconds = int(avg_time * remaining)
+
+                update_progress(eta=f"{eta_seconds} sec remaining")
 
                 if score > best_score:
                     best_score = score
@@ -1252,11 +1320,13 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
         
         leaderboard_data = {
             "best_model": best_model_name,
+            "model_version": model_filename,
             "total_models": len(top_models),
-            "models": top_models
+            "models": top_models,
+            # "leaderboard": leaderboard
         }
 
-        joblib.dump(leaderboard_data, "leaderboard.pkl")
+        joblib.dump(leaderboard_data, LEADERBOARD_PATH)
 
         joblib.dump({
             "model": best_model,
@@ -1289,8 +1359,8 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
         }
 
         # Load existing logs
-        if os.path.exists("experiments.json"):
-            with open("experiments.json", "r") as f:
+        if os.path.exists(EXPERIMENTS_PATH):
+            with open(EXPERIMENTS_PATH, "r") as f:
                 logs = json.load(f)
         else:
             logs = []
@@ -1299,7 +1369,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
         logs.append(experiment)
 
         # Save back
-        with open("experiments.json", "w") as f:
+        with open(EXPERIMENTS_PATH, "w") as f:
             json.dump(logs, f, indent=4)
         # ==========================
         # DATASET QUALITY
@@ -1328,7 +1398,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             "explanation": explanation
         }
 
-        joblib.dump(report, "training_report.pkl")
+        joblib.dump(report, TRAINING_REPORT_PATH)
         
         ai_insights = generate_ai_insights(
             df,
@@ -1344,7 +1414,7 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             target_column=target_column
         )
         
-        with open("generated_pipeline.py", "w") as f:
+        with open(GENERATED_PIPELINE_PATH, "w") as f:
             f.write(generated_code)
 
         if problem_type == "classification":
@@ -1424,7 +1494,6 @@ def risk_analysis(prob_array):
 # =====================================================
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-
     if not os.path.exists(MODEL_PATH):
         return {"error": "No trained model found"}
 
@@ -1465,9 +1534,9 @@ async def predict(file: UploadFile = File(...)):
 
     try:
         # Detect file type
-        if file.filename.endswith(".csv"):
+        if (file.filename or "").endswith(".csv"):
             df = pd.read_csv(file.file, sep=None, engine="python")
-        elif file.filename.endswith(".xlsx"):
+        elif (file.filename or "").endswith(".xlsx"):
             df = pd.read_excel(file.file)
         else:
             return {"error": "Unsupported file format"}
@@ -1585,7 +1654,6 @@ async def predict(file: UploadFile = File(...)):
 # =====================================================
 @app.post("/predict-image")
 async def predict_image(file: UploadFile = File(...)):
-
     if not os.path.exists(CNN_MODEL_PATH):
         return {"error":"No trained CNN model"}
 
@@ -1775,9 +1843,9 @@ async def shap_explain(file: UploadFile = File(...)):
 
     try:
         # Load input file
-        if file.filename.endswith(".csv"):
+        if (file.filename or "").endswith(".csv"):
             df = pd.read_csv(file.file, sep=None, engine="python")
-        elif file.filename.endswith(".xlsx"):
+        elif (file.filename or "").endswith(".xlsx"):
             df = pd.read_excel(file.file)
         else:
             return {"error": "Unsupported file format"}
@@ -1799,7 +1867,10 @@ async def shap_explain(file: UploadFile = File(...)):
         shap_values = explainer.shap_values(df)
 
         # Global importance
-        importance = np.abs(shap_values.values).mean(axis=0)
+        if isinstance(shap_values, list):
+            shap_values = shap_values[0]
+
+        importance = np.abs(shap_values).mean(axis=0)
 
         feature_importance = dict(
             sorted(
@@ -1834,21 +1905,21 @@ async def shap_explain(file: UploadFile = File(...)):
 @app.get("/download-code/{format}")
 def download_code(format: str):
 
-    if not os.path.exists("generated_pipeline.py"):
+    if not os.path.exists(GENERATED_PIPELINE_PATH):
         return {"error": "No generated code found. Train a model first."}
 
     # ==========================
     # PYTHON SCRIPT
     # ==========================
     if format == "python":
-        return FileResponse("generated_pipeline.py", filename="pipeline.py")
+        return FileResponse(GENERATED_PIPELINE_PATH, filename="pipeline.py")
 
     # ==========================
     # JUPYTER NOTEBOOK
     # ==========================
     elif format == "notebook":
 
-        with open("generated_pipeline.py", "r") as f:
+        with open(GENERATED_PIPELINE_PATH, "r") as f:
             code_lines = f.read().split("\n")
 
         notebook = {
@@ -1871,7 +1942,7 @@ def download_code(format: str):
             "nbformat_minor": 5
         }
 
-        notebook_path = "generated_notebook.ipynb"
+        notebook_path = GENERATED_NOTEBOOK_PATH
 
         with open(notebook_path, "w") as f:
             json.dump(notebook, f)
@@ -1899,7 +1970,7 @@ def predict(data: dict):
     return {"prediction": prediction.tolist()}
 """
 
-        api_path = "generated_api.py"
+        api_path = GENERATED_API_PATH
 
         with open(api_path, "w") as f:
             f.write(api_code)
@@ -1920,12 +1991,12 @@ fastapi
 uvicorn
 """
 
-        req_path = "requirements.txt"
+        req_path = GENERATED_REQUIREMENTS_PATH
 
         with open(req_path, "w") as f:
             f.write(requirements.strip())
 
-        return FileResponse(req_path)
+        return FileResponse(req_path, filename="requirements.txt")
 
     # ==========================
     # DOCKER PACKAGE
@@ -1944,19 +2015,19 @@ RUN pip install -r requirements.txt
 CMD ["python", "generated_pipeline.py"]
 """
 
-        with open("Dockerfile", "w") as f:
+        with open(GENERATED_DOCKERFILE_PATH, "w") as f:
             f.write(dockerfile.strip())
 
         # Ensure requirements exist
-        with open("requirements.txt", "w") as f:
+        with open(GENERATED_REQUIREMENTS_PATH, "w") as f:
             f.write("pandas\nnumpy\nscikit-learn\njoblib\n")
 
-        zip_path = "docker_package.zip"
+        zip_path = DOCKER_PACKAGE_PATH
 
         with zipfile.ZipFile(zip_path, 'w') as zipf:
-            zipf.write("generated_pipeline.py")
-            zipf.write("requirements.txt")
-            zipf.write("Dockerfile")
+            zipf.write(GENERATED_PIPELINE_PATH, arcname="generated_pipeline.py")
+            zipf.write(GENERATED_REQUIREMENTS_PATH, arcname="requirements.txt")
+            zipf.write(GENERATED_DOCKERFILE_PATH, arcname="Dockerfile")
 
         return FileResponse(zip_path)
 
@@ -1965,21 +2036,21 @@ CMD ["python", "generated_pipeline.py"]
     # ==========================
     elif format == "project":
 
-        zip_path = "full_project.zip"
+        zip_path = FULL_PROJECT_ZIP_PATH
 
         with zipfile.ZipFile(zip_path, 'w') as zipf:
 
-            if os.path.exists("generated_pipeline.py"):
-                zipf.write("generated_pipeline.py")
+            if os.path.exists(GENERATED_PIPELINE_PATH):
+                zipf.write(GENERATED_PIPELINE_PATH, arcname="generated_pipeline.py")
 
             if os.path.exists(MODEL_PATH):
-                zipf.write(MODEL_PATH)
+                zipf.write(MODEL_PATH, arcname=os.path.basename(MODEL_PATH))
 
             # add requirements
-            with open("requirements.txt", "w") as f:
+            with open(GENERATED_REQUIREMENTS_PATH, "w") as f:
                 f.write("pandas\nnumpy\nscikit-learn\njoblib\n")
 
-            zipf.write("requirements.txt")
+            zipf.write(GENERATED_REQUIREMENTS_PATH, arcname="requirements.txt")
 
         return FileResponse(zip_path)
 
@@ -1998,10 +2069,10 @@ CMD ["python", "generated_pipeline.py"]
 @app.get("/experiments")
 def get_experiments():
 
-    if not os.path.exists("experiments.json"):
+    if not os.path.exists(EXPERIMENTS_PATH):
         return {"error": "No experiments found"}
 
-    with open("experiments.json", "r") as f:
+    with open(EXPERIMENTS_PATH, "r") as f:
         data = json.load(f)
 
     return {
@@ -2019,10 +2090,10 @@ def get_experiments():
 @app.get("/insights")
 def get_insights():
 
-    if not os.path.exists("experiments.json"):
+    if not os.path.exists(EXPERIMENTS_PATH):
         return {"error": "No experiments found"}
 
-    with open("experiments.json", "r") as f:
+    with open(EXPERIMENTS_PATH, "r") as f:
         data = json.load(f)
 
     if len(data) == 0:
@@ -2055,10 +2126,10 @@ def get_insights():
 @app.get("/ai-insights")
 def get_ai_insights():
 
-    if not os.path.exists("experiments.json"):
+    if not os.path.exists(EXPERIMENTS_PATH):
         return {"error": "No experiments found"}
 
-    with open("experiments.json", "r") as f:
+    with open(EXPERIMENTS_PATH, "r") as f:
         data = json.load(f)
 
     if len(data) == 0:
@@ -2088,7 +2159,8 @@ def get_ai_insights():
 @app.get("/download-model/{version}")
 def download_model(version: str):
 
-    model_path = os.path.join(MODEL_DIR, version)
+    safe_version = os.path.basename(version)
+    model_path = os.path.join(MODEL_DIR, safe_version)
 
     if os.path.exists(model_path):
         return FileResponse(model_path)
@@ -2096,13 +2168,21 @@ def download_model(version: str):
     return {"error": "Model not found"}
 
 
+@app.get("/download-latest-model")
+def download_latest_model():
+    if os.path.exists(MODEL_PATH):
+        return FileResponse(MODEL_PATH)
+    return {"error": "No trained model"}
+
+
+
 @app.get("/leaderboard")
 def get_leaderboard():
 
-    if not os.path.exists("leaderboard.pkl"):
+    if not os.path.exists(LEADERBOARD_PATH):
         return {"error": "No leaderboard found. Train model first."}
 
-    leaderboard = joblib.load("leaderboard.pkl")
+    leaderboard = joblib.load(LEADERBOARD_PATH)
 
     return leaderboard
 
@@ -2111,10 +2191,10 @@ def get_leaderboard():
 @app.get("/training-report")
 def get_training_report():
 
-    if not os.path.exists("training_report.pkl"):
+    if not os.path.exists(TRAINING_REPORT_PATH):
         return {"error": "No report found. Train model first."}
 
-    report = joblib.load("training_report.pkl")
+    report = joblib.load(TRAINING_REPORT_PATH)
 
     return report
 
@@ -2135,7 +2215,14 @@ async def websocket_progress(websocket: WebSocket):
         
         
         
-        
+@app.post("/chat")
+async def chat(request: dict):
+    message = request.get("message")
+
+    # simple AI logic (upgrade later)
+    reply = f"AI says: {message}"
+
+    return {"reply": reply}  
         
 
 @app.get("/")

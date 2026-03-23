@@ -1,0 +1,94 @@
+/Users/harshsingh/Desktop/universal-ai/backend/main.py
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:110:17 - error: No overloads for "join" match the provided arguments (reportCallIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:110:45 - error: Argument of type "str | None" cannot be assigned to parameter "paths" of type "StrPath" in function "join"
+    Type "str | None" is not assignable to type "StrPath"
+      Type "None" is not assignable to type "StrPath"
+        "None" is not assignable to "str"
+        "None" is incompatible with protocol "PathLike[str]"
+          "__fspath__" is not present (reportArgumentType)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:115:22 - error: "endswith" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:117:24 - error: "endswith" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:348:24 - error: "metrics" is possibly unbound (reportPossiblyUnboundVariable)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:834:17 - error: No overloads for "join" match the provided arguments (reportCallIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:834:45 - error: Argument of type "str | None" cannot be assigned to parameter "paths" of type "StrPath" in function "join"
+    Type "str | None" is not assignable to type "StrPath"
+      Type "None" is not assignable to type "StrPath"
+        "None" is not assignable to "str"
+        "None" is incompatible with protocol "PathLike[str]"
+          "__fspath__" is not present (reportArgumentType)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:839:22 - error: "endswith" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:841:24 - error: "endswith" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:905:30 - error: "lower" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:912:20 - error: No overloads for "join" match the provided arguments (reportCallIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:912:48 - error: Argument of type "str | None" cannot be assigned to parameter "paths" of type "StrPath" in function "join"
+    Type "str | None" is not assignable to type "StrPath"
+      Type "None" is not assignable to type "StrPath"
+        "None" is not assignable to "str"
+        "None" is incompatible with protocol "PathLike[str]"
+          "__fspath__" is not present (reportArgumentType)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:998:21 - error: No overloads for "join" match the provided arguments (reportCallIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:998:49 - error: Argument of type "str | None" cannot be assigned to parameter "paths" of type "StrPath" in function "join"
+    Type "str | None" is not assignable to type "StrPath"
+      Type "None" is not assignable to type "StrPath"
+        "None" is not assignable to "str"
+        "None" is incompatible with protocol "PathLike[str]"
+          "__fspath__" is not present (reportArgumentType)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "float"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "Number"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "number[Any, int | float | complex]"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "ArrowExtensionArray"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "NAType"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "NaTType"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "Timestamp"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "Timedelta"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "BooleanArray"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "FloatingArray"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "IntegerArray"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "ndarray[_Shape, Unknown]"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "ExtensionArray"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "ndarray[_Shape, dtype[Any]]"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "ndarray[_Shape, dtype[signedinteger[_64Bit]]]"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "ndarray[Unknown, Unknown]"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1069:30 - error: Cannot access attribute "notna" for class "ndarray[Unknown, dtype[Any]]"
+    Attribute "notna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1189:31 - error: Cannot access attribute "shape" for class "list[Unknown]"
+    Attribute "shape" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1369:57 - error: "predict" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1468:26 - error: "endswith" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1470:28 - error: "endswith" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1494:49 - error: Cannot access attribute "fillna" for class "ndarray[_Shape, Unknown]"
+    Attribute "fillna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1494:49 - error: Cannot access attribute "fillna" for class "NDArray[Unknown]"
+    Attribute "fillna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1610:33 - error: Cannot access attribute "unsqueeze" for class "Image"
+    Attribute "unsqueeze" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1643:35 - error: Cannot access attribute "unsqueeze" for class "Image"
+    Attribute "unsqueeze" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1658:22 - error: "jet" is not a known attribute of module "matplotlib.cm" (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1778:26 - error: "endswith" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1780:28 - error: "endswith" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1789:45 - error: Cannot access attribute "fillna" for class "ndarray[_Shape, Unknown]"
+    Attribute "fillna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1789:45 - error: Cannot access attribute "fillna" for class "NDArray[Unknown]"
+    Attribute "fillna" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1802:41 - error: Cannot access attribute "values" for class "NDArray[Any]"
+    Attribute "values" is unknown (reportAttributeAccessIssue)
+  /Users/harshsingh/Desktop/universal-ai/backend/main.py:1814:46 - error: Cannot access attribute "values" for class "NDArray[Any]"
+    Attribute "values" is unknown (reportAttributeAccessIssue)
+46 errors, 0 warnings, 0 informations

@@ -1,8 +1,11 @@
 import joblib
 import pandas as pd
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
 
 # Load model
-model_package = joblib.load("best_model.pkl")
+model_package = joblib.load(BASE_DIR / "best_model.pkl")
 
 model = model_package["model"]
 feature_columns = model_package["feature_columns"]

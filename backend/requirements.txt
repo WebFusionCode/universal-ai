@@ -13,3 +13,8 @@ pillow
 openpyxl
 python-multipart
 shap
+python-jose
+passlib[bcrypt]
+xgboost
+lightgbm
+catboost
