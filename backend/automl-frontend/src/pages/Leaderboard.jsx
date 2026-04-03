@@ -61,6 +61,14 @@ function formatScore(value) {
     : "Trained";
 }
 
+function formatDatasetLabel(value) {
+  if (!value) {
+    return "Last trained dataset";
+  }
+
+  return String(value).replaceAll("_", " ");
+}
+
 export default function Leaderboard() {
   const [data, setData] = useState(() => normalizeLeaderboard(null));
   const [loading, setLoading] = useState(true);
@@ -135,7 +143,7 @@ export default function Leaderboard() {
 
         {!loading && !error && (
           <>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-4">
               <div className="glass rounded-2xl border border-cyan-400/40 p-5">
                 <p className="text-sm text-gray-400">Best Model</p>
                 <p className="mt-2 text-2xl font-semibold">{data.best_model}</p>
@@ -146,16 +154,29 @@ export default function Leaderboard() {
                 <p className="mt-2 text-2xl font-semibold">
                   {bestScore != null ? bestScore.toFixed(4) : "Available"}
                 </p>
+                <p className="mt-2 text-xs uppercase tracking-[0.2em] text-cyan-300">
+                  Best score highlight
+                </p>
               </div>
 
               <div className="glass rounded-2xl border border-cyan-400/20 p-5">
-                <p className="text-sm text-gray-400">Model File</p>
-                <p className="mt-2 text-lg font-semibold">{data.model_version}</p>
+                <p className="text-sm text-gray-400">Dataset</p>
+                <p className="mt-2 text-lg font-semibold capitalize">
+                  {formatDatasetLabel(data.dataset_type)}
+                </p>
                 {data.problem_type && (
                   <p className="mt-2 text-xs uppercase tracking-[0.2em] text-cyan-300">
                     {String(data.problem_type).replaceAll("_", " ")}
                   </p>
                 )}
+              </div>
+
+              <div className="glass rounded-2xl border border-cyan-400/20 p-5">
+                <p className="text-sm text-gray-400">Model File</p>
+                <p className="mt-2 text-lg font-semibold">{data.model_version}</p>
+                <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500">
+                  Ready for download
+                </p>
               </div>
             </div>
 
@@ -191,7 +212,7 @@ export default function Leaderboard() {
                         <p className="text-sm text-gray-400">
                           {item.time != null
                             ? `${item.time.toFixed(2)}s training time`
-                            : "Latest trained model"}
+                            : `Model rank #${item.rank || index + 1}`}
                         </p>
                       </div>
                     </div>

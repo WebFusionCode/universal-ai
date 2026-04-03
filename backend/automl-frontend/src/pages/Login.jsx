@@ -17,6 +17,7 @@ export default function Login() {
 
       if (res.data.token) {
         localStorage.setItem("token", res.data.token);
+        localStorage.setItem("user_email", email);
         navigate("/dashboard");
       } else {
         alert(res.data.error || "Login failed");
@@ -29,6 +30,7 @@ export default function Login() {
 
   const handleGuestAccess = () => {
     localStorage.setItem("token", "guest-session");
+    localStorage.setItem("user_email", "guest@automl.local");
     navigate("/dashboard");
   };
 

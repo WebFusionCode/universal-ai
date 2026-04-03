@@ -1,34 +1,80 @@
-import { Link } from "react-router-dom";
+import { NavLink } from "react-router-dom";
+
+const navItems = [
+  { label: "Dashboard", to: "/dashboard" },
+  { label: "Train", to: "/train" },
+  { label: "Predict", to: "/predict" },
+  { label: "Image AI", to: "/image-ai" },
+  { label: "Leaderboard", to: "/leaderboard" },
+  { label: "Insights", to: "/insights" },
+  { label: "Experiments", to: "/experiments" },
+  { label: "Download", to: "/download" },
+  { label: "Compiler", to: "/compiler" },
+];
+
+function getProfileLabel() {
+  const storedEmail = localStorage.getItem("user_email");
+
+  if (!storedEmail) {
+    return {
+      name: "Guest User",
+      subtext: "Local session",
+    };
+  }
+
+  if (storedEmail === "guest@automl.local") {
+    return {
+      name: "Guest User",
+      subtext: "Explore the workspace",
+    };
+  }
+
+  return {
+    name: storedEmail.split("@")[0].replace(/[._-]+/g, " "),
+    subtext: storedEmail,
+  };
+}
 
 export default function Sidebar() {
-  return (
-    <div className="w-64 h-screen glass p-4 flex flex-col gap-4">
-      <h1 className="text-xl font-bold text-cyan-400 mb-6">AutoML Lab</h1>
+  const profile = getProfileLabel();
 
-      <Link to="/dashboard" className="hover:text-cyan-400">
-        Home
-      </Link>
-      <Link to="/train" className="hover:text-cyan-400">
-        Train
-      </Link>
-      <Link to="/predict" className="hover:text-cyan-400">
-        Predict
-      </Link>
-      <Link to="/image-ai" className="hover:text-cyan-400">
-        Image AI
-      </Link>
-      <Link to="/leaderboard" className="hover:text-cyan-400">
-        Leaderboard
-      </Link>
-      <Link to="/insights" className="hover:text-cyan-400">
-        Insights
-      </Link>
-      <Link to="/experiments" className="hover:text-cyan-400">
-        Experiments
-      </Link>
-      <Link to="/download" className="hover:text-cyan-400">
-        Download
-      </Link>
-    </div>
+  return (
+    <aside className="glass flex h-screen w-72 flex-col border-r border-white/10 p-5">
+      <div className="mb-8 space-y-2">
+        <p className="text-xs uppercase tracking-[0.35em] text-slate-500">
+          AutoML Platform
+        </p>
+        <h1 className="text-2xl font-semibold text-cyan-400">AutoML Lab</h1>
+        <p className="text-sm text-slate-400">
+          Build, compare, and deploy ML workflows from one workspace.
+        </p>
+      </div>
+
+      <nav className="space-y-2">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              [
+                "block rounded-2xl px-4 py-3 text-sm transition",
+                isActive
+                  ? "bg-cyan-400/15 text-cyan-300"
+                  : "text-slate-300 hover:bg-white/5 hover:text-cyan-300",
+              ].join(" ")
+            }
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+
+      <div className="mt-auto rounded-2xl border-t border-white/10 pt-4">
+        <p className="text-sm font-medium text-slate-100 capitalize">
+          {profile.name}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">{profile.subtext}</p>
+      </div>
+    </aside>
   );
 }
