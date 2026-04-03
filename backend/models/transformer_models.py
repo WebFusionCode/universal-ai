@@ -1,4 +1,5 @@
 import torch
+
 import torch.nn as nn
 
 
@@ -13,13 +14,11 @@ class TabTransformer(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=128,
             nhead=4,
-            dim_feedforward=256
+            dim_feedforward=256,
+            batch_first=True,
         )
 
-        self.transformer = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=3
-        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=3)
 
         self.fc = nn.Linear(128, num_classes)
 

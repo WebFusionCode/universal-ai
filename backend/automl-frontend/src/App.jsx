@@ -12,18 +12,16 @@ import Predict from "./pages/Predict";
 import ImageAI from "./pages/ImageAI";
 import Experiments from "./pages/Experiments";
 import ProtectedRoute from "./components/ProtectedRoute";
+import ModelExplain from "./pages/ModelExplain";
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-
-        {/* Public Routes */}
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
 
-        {/* 🔐 Protected Routes */}
         <Route
           path="/train"
           element={
@@ -47,6 +45,15 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Predict />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/model-explain"
+          element={
+            <ProtectedRoute>
+              <ModelExplain />
             </ProtectedRoute>
           }
         />
@@ -95,7 +102,6 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-
       </Routes>
     </BrowserRouter>
   );

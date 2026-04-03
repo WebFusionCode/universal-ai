@@ -10,9 +10,13 @@ def detect_problem_type(df, target_column):
         unique_values = target_data.nunique()
 
         if unique_values < 20:
+
             return "classification"
+
         else:
+
             return "regression"
 
     else:
+
         return "classification"

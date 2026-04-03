@@ -2,21 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 🌌 Background */
 body {
-  background: radial-gradient(circle at top, #0b0f14, #000000);
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #0f172a, #020617);
   color: white;
-  font-family: 'Inter', sans-serif;
+  font-family: "Inter", sans-serif;
+  line-height: 1.5;
 }
 
-/* ✨ Glow Utility */
 .glow {
-  box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.55);
 }
 
-/* 🧊 Glass Effect */
 .glass {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }

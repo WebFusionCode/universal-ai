@@ -1,530 +1,393 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
+  <head>
+    <title>Universal AI Platform</title>
 
-<title>Universal AI Platform</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: Segoe UI;
+      }
 
-<style>
+      body {
+        background: linear-gradient(135deg, #667eea, #764ba2, #f093fb);
 
-/* GLOBAL */
+        color: white;
 
-*{
-margin:0;
-padding:0;
-box-sizing:border-box;
-font-family:Segoe UI;
-}
+        overflow-x: hidden;
+      }
 
-body{
+      .navbar-container {
+        position: fixed;
 
-background:linear-gradient(135deg,#667eea,#764ba2,#f093fb);
+        top: 20px;
 
-color:white;
+        left: 50%;
 
-overflow-x:hidden;
+        transform: translateX(-50%);
 
-}
+        width: 95%;
 
+        max-width: 1100px;
 
-/* NAVBAR */
+        z-index: 999;
+      }
 
-.navbar-container{
+      .navbar {
+        display: flex;
 
-position:fixed;
+        justify-content: space-between;
 
-top:20px;
+        align-items: center;
 
-left:50%;
+        padding: 15px 30px;
 
-transform:translateX(-50%);
+        border-radius: 50px;
 
-width:95%;
+        background: rgba(255, 255, 255, 0.1);
 
-max-width:1100px;
+        backdrop-filter: blur(20px);
 
-z-index:999;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
 
-}
+      .brand {
+        font-size: 20px;
 
-.navbar{
+        font-weight: bold;
+      }
 
-display:flex;
+      .nav-links {
+        display: flex;
 
-justify-content:space-between;
+        gap: 20px;
+      }
 
-align-items:center;
+      .nav-links a {
+        color: white;
 
-padding:15px 30px;
+        text-decoration: none;
 
-border-radius:50px;
+        padding: 8px 14px;
 
-background:rgba(255,255,255,0.1);
+        border-radius: 20px;
 
-backdrop-filter:blur(20px);
+        transition: 0.3s;
+      }
 
-border:1px solid rgba(255,255,255,0.2);
+      .nav-links a:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
 
-}
+      .section {
+        padding-top: 140px;
 
+        padding-bottom: 80px;
 
-.brand{
+        width: 90%;
 
-font-size:20px;
+        max-width: 1100px;
 
-font-weight:bold;
+        margin: auto;
+      }
 
-}
+      .section h2 {
+        margin-bottom: 20px;
 
+        font-size: 28px;
+      }
 
-.nav-links{
+      .card {
+        background: rgba(255, 255, 255, 0.1);
 
-display:flex;
+        border-radius: 20px;
 
-gap:20px;
+        padding: 25px;
 
-}
+        margin-bottom: 30px;
 
+        backdrop-filter: blur(10px);
 
-.nav-links a{
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
 
-color:white;
+      input,
+      select,
+      button {
+        width: 100%;
 
-text-decoration:none;
+        padding: 12px;
 
-padding:8px 14px;
+        margin-top: 10px;
 
-border-radius:20px;
+        border: none;
 
-transition:0.3s;
+        border-radius: 10px;
+      }
 
-}
+      input,
+      select {
+        background: rgba(0, 0, 0, 0.3);
 
-.nav-links a:hover{
+        color: white;
+      }
 
-background:rgba(255,255,255,0.2);
+      button {
+        background: linear-gradient(90deg, #00ffe0, #00aaff);
 
-}
+        font-weight: bold;
 
+        cursor: pointer;
+      }
 
-/* SECTIONS */
+      .stats-grid {
+        display: grid;
 
-.section{
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 
-padding-top:140px;
+        gap: 15px;
 
-padding-bottom:80px;
+        margin-top: 20px;
+      }
 
-width:90%;
+      .stat-card {
+        background: rgba(255, 255, 255, 0.15);
 
-max-width:1100px;
+        padding: 15px;
 
-margin:auto;
+        border-radius: 12px;
 
-}
+        text-align: center;
+      }
 
+      .progress-container {
+        width: 100%;
 
-.section h2{
+        background: rgba(255, 255, 255, 0.2);
 
-margin-bottom:20px;
+        border-radius: 20px;
 
-font-size:28px;
+        margin-top: 20px;
+      }
 
-}
+      .progress-bar {
+        height: 10px;
 
+        width: 0%;
 
-/* CARDS */
+        border-radius: 20px;
 
-.card{
+        background: #00ffe0;
+      }
 
-background:rgba(255,255,255,0.1);
+      table {
+        width: 100%;
 
-border-radius:20px;
+        border-collapse: collapse;
 
-padding:25px;
+        margin-top: 20px;
+      }
 
-margin-bottom:30px;
+      th,
+      td {
+        border: 1px solid rgba(255, 255, 255, 0.2);
 
-backdrop-filter:blur(10px);
+        padding: 8px;
 
-border:1px solid rgba(255,255,255,0.2);
+        font-size: 12px;
+      }
 
-}
+      th {
+        background: #00aaff;
+      }
 
+      .loader {
+        position: fixed;
 
-/* INPUT */
+        inset: 0;
 
-input,select,button{
+        background: rgba(0, 0, 0, 0.7);
 
-width:100%;
+        display: none;
 
-padding:12px;
+        align-items: center;
 
-margin-top:10px;
+        justify-content: center;
 
-border:none;
+        font-size: 22px;
 
-border-radius:10px;
+        z-index: 9999;
+      }
+    </style>
+  </head>
 
-}
+  <body>
+    <div class="navbar-container">
+      <div class="navbar">
+        <div class="brand">⚡ Universal AI</div>
 
+        <div class="nav-links">
+          <a href="#preview">Dataset</a>
 
-input,select{
+          <a href="#train">Train</a>
 
-background:rgba(0,0,0,0.3);
+          <a href="#predict">Predict</a>
 
-color:white;
+          <a href="#imageAI">Image AI</a>
 
-}
+          <a href="#explain">Explain</a>
 
+          <a href="/download-model">Download</a>
+        </div>
+      </div>
+    </div>
 
-button{
+    <div class="section" id="preview">
+      <div class="card">
+        <h2>Dataset Preview</h2>
 
-background:linear-gradient(90deg,#00ffe0,#00aaff);
+        <form id="previewForm">
+          <input type="file" name="file" required />
 
-font-weight:bold;
+          <button>Analyze Dataset</button>
+        </form>
 
-cursor:pointer;
+        <select id="targetDropdown"></select>
 
-}
+        <canvas id="previewChart"></canvas>
 
+        <div id="datasetStats"></div>
 
-/* STATS */
+        <div id="previewTable"></div>
+      </div>
+    </div>
 
-.stats-grid{
+    <div class="section" id="train">
+      <div class="card">
+        <h2>Train Model</h2>
 
-display:grid;
+        <form id="trainForm">
+          <input type="file" name="file" required />
 
-grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+          <input type="hidden" name="target_column" id="selectedTarget" />
 
-gap:15px;
+          <button>Train Model</button>
+        </form>
 
-margin-top:20px;
+        <div class="progress-container">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
 
-}
+        <div id="trainingMetrics"></div>
 
-.stat-card{
+        <div id="leaderboard"></div>
+      </div>
+    </div>
 
-background:rgba(255,255,255,0.15);
+    <div class="section" id="predict">
+      <div class="card">
+        <h2>Prediction</h2>
 
-padding:15px;
+        <form id="predictForm">
+          <input type="file" name="file" required />
 
-border-radius:12px;
+          <button>Predict</button>
+        </form>
 
-text-align:center;
+        <canvas id="predictChart"></canvas>
 
-}
+        <div id="predictionTable"></div>
+      </div>
+    </div>
 
+    <div class="section" id="imageAI">
+      <div class="card">
+        <h2>Image Prediction</h2>
 
-/* PROGRESS */
+        <form id="imagePredictForm">
+          <input type="file" name="file" required />
 
-.progress-container{
+          <button>Predict Image</button>
+        </form>
 
-width:100%;
+        <div id="imageResult"></div>
+      </div>
 
-background:rgba(255,255,255,0.2);
+      <div class="card">
+        <h2>Image Explain</h2>
 
-border-radius:20px;
+        <form id="imageExplainForm">
+          <input type="file" name="file" required />
 
-margin-top:20px;
+          <button>Generate Heatmap</button>
+        </form>
 
-}
+        <div id="heatmapResult"></div>
+      </div>
+    </div>
 
-.progress-bar{
+    <div class="section" id="explain">
+      <div class="card">
+        <h2>Model Explainability</h2>
 
-height:10px;
+        <button onclick="explainModel()">Explain Model</button>
 
-width:0%;
+        <canvas id="explainChart"></canvas>
+      </div>
+    </div>
 
-border-radius:20px;
+    <div class="loader" id="loader">Processing...</div>
 
-background:#00ffe0;
+    <script>
+      let previewChart = null;
+      let predictChart = null;
+      let explainChart = null;
 
-}
+      function showLoader() {
+        document.getElementById("loader").style.display = "flex";
+      }
 
+      function hideLoader() {
+        document.getElementById("loader").style.display = "none";
+      }
 
-/* TABLE */
+      document.getElementById("previewForm").onsubmit = async function (e) {
+        e.preventDefault();
 
-table{
+        showLoader();
 
-width:100%;
+        let res = await fetch("/preview", {
+          method: "POST",
+          body: new FormData(this),
+        });
 
-border-collapse:collapse;
+        let data = await res.json();
 
-margin-top:20px;
+        hideLoader();
 
-}
+        let dropdown = document.getElementById("targetDropdown");
 
-th,td{
+        dropdown.innerHTML = "";
 
-border:1px solid rgba(255,255,255,0.2);
+        data.suggested_target_columns.forEach((col) => {
+          let option = document.createElement("option");
 
-padding:8px;
+          option.value = col;
 
-font-size:12px;
+          option.textContent = col;
 
-}
+          dropdown.appendChild(option);
+        });
 
-th{
+        document.getElementById("selectedTarget").value = dropdown.value;
 
-background:#00aaff;
-
-}
-
-
-/* LOADER */
-
-.loader{
-
-position:fixed;
-
-inset:0;
-
-background:rgba(0,0,0,0.7);
-
-display:none;
-
-align-items:center;
-
-justify-content:center;
-
-font-size:22px;
-
-z-index:9999;
-
-}
-
-</style>
-
-</head>
-
-<body>
-
-
-<!-- NAVBAR -->
-
-<div class="navbar-container">
-
-<div class="navbar">
-
-<div class="brand">⚡ Universal AI</div>
-
-<div class="nav-links">
-
-<a href="#preview">Dataset</a>
-
-<a href="#train">Train</a>
-
-<a href="#predict">Predict</a>
-
-<a href="#imageAI">Image AI</a>
-
-<a href="#explain">Explain</a>
-
-<a href="/download-model">Download</a>
-
-</div>
-
-</div>
-
-</div>
-
-
-<!-- DATASET -->
-
-<div class="section" id="preview">
-
-<div class="card">
-
-<h2>Dataset Preview</h2>
-
-<form id="previewForm">
-
-<input type="file" name="file" required>
-
-<button>Analyze Dataset</button>
-
-</form>
-
-<select id="targetDropdown"></select>
-
-<canvas id="previewChart"></canvas>
-
-<div id="datasetStats"></div>
-
-<div id="previewTable"></div>
-
-</div>
-
-</div>
-
-
-<!-- TRAIN -->
-
-<div class="section" id="train">
-
-<div class="card">
-
-<h2>Train Model</h2>
-
-<form id="trainForm">
-
-<input type="file" name="file" required>
-
-<input type="hidden" name="target_column" id="selectedTarget">
-
-<button>Train Model</button>
-
-</form>
-
-<div class="progress-container">
-
-<div class="progress-bar" id="progressBar"></div>
-
-</div>
-
-<div id="trainingMetrics"></div>
-
-<div id="leaderboard"></div>
-
-</div>
-
-</div>
-
-
-<!-- PREDICT -->
-
-<div class="section" id="predict">
-
-<div class="card">
-
-<h2>Prediction</h2>
-
-<form id="predictForm">
-
-<input type="file" name="file" required>
-
-<button>Predict</button>
-
-</form>
-
-<canvas id="predictChart"></canvas>
-
-<div id="predictionTable"></div>
-
-</div>
-
-</div>
-
-
-<!-- IMAGE AI -->
-
-<div class="section" id="imageAI">
-
-<div class="card">
-
-<h2>Image Prediction</h2>
-
-<form id="imagePredictForm">
-
-<input type="file" name="file" required>
-
-<button>Predict Image</button>
-
-</form>
-
-<div id="imageResult"></div>
-
-</div>
-
-
-<div class="card">
-
-<h2>Image Explain</h2>
-
-<form id="imageExplainForm">
-
-<input type="file" name="file" required>
-
-<button>Generate Heatmap</button>
-
-</form>
-
-<div id="heatmapResult"></div>
-
-</div>
-
-</div>
-
-
-<!-- EXPLAIN -->
-
-<div class="section" id="explain">
-
-<div class="card">
-
-<h2>Model Explainability</h2>
-
-<button onclick="explainModel()">Explain Model</button>
-
-<canvas id="explainChart"></canvas>
-
-</div>
-
-</div>
-
-
-<div class="loader" id="loader">Processing...</div>
-
-
-<script>
-
-let previewChart=null
-let predictChart=null
-let explainChart=null
-
-function showLoader(){document.getElementById("loader").style.display="flex"}
-
-function hideLoader(){document.getElementById("loader").style.display="none"}
-
-
-/* PREVIEW */
-
-document.getElementById("previewForm").onsubmit=async function(e){
-
-e.preventDefault()
-
-showLoader()
-
-let res=await fetch("/preview",{method:"POST",body:new FormData(this)})
-
-let data=await res.json()
-
-hideLoader()
-
-let dropdown=document.getElementById("targetDropdown")
-
-dropdown.innerHTML=""
-
-data.suggested_target_columns.forEach(col=>{
-
-let option=document.createElement("option")
-
-option.value=col
-
-option.textContent=col
-
-dropdown.appendChild(option)
-
-})
-
-document.getElementById("selectedTarget").value=dropdown.value
-
-
-document.getElementById("datasetStats").innerHTML=`
+        document.getElementById("datasetStats").innerHTML = `
 
 <div class="stats-grid">
 
@@ -538,162 +401,136 @@ document.getElementById("datasetStats").innerHTML=`
 
 </div>
 
-`
+`;
+      };
 
-}
+      document.getElementById("trainForm").onsubmit = async function (e) {
+        e.preventDefault();
 
+        let socket = new WebSocket("ws://127.0.0.1:8000/ws/progress");
 
-/* TRAIN */
+        socket.onmessage = function (event) {
+          let data = JSON.parse(event.data);
 
-document.getElementById("trainForm").onsubmit=async function(e){
+          document.getElementById("progressBar").style.width = data.value + "%";
+        };
 
-e.preventDefault()
+        showLoader();
 
-let socket=new WebSocket("ws://127.0.0.1:8000/ws/progress")
+        let res = await fetch("/train", {
+          method: "POST",
+          body: new FormData(this),
+        });
 
-socket.onmessage=function(event){
+        let data = await res.json();
 
-let data=JSON.parse(event.data)
+        hideLoader();
+      };
 
-document.getElementById("progressBar").style.width=data.value+"%"
+      document.getElementById("predictForm").onsubmit = async function (e) {
+        e.preventDefault();
 
-}
+        showLoader();
 
-showLoader()
+        let res = await fetch("/predict", {
+          method: "POST",
+          body: new FormData(this),
+        });
 
-let res=await fetch("/train",{method:"POST",body:new FormData(this)})
+        let data = await res.json();
 
-let data=await res.json()
+        hideLoader();
 
-hideLoader()
+        if (data.predictions) {
+          let values = data.predictions.map((p) =>
+            typeof p === "number" ? p : p.prediction,
+          );
 
-}
+          if (predictChart) predictChart.destroy();
 
+          predictChart = new Chart(document.getElementById("predictChart"), {
+            type: "bar",
 
-/* PREDICT */
+            data: {
+              labels: values.map((_, i) => "Row " + (i + 1)),
 
-document.getElementById("predictForm").onsubmit=async function(e){
+              datasets: [{ label: "Prediction", data: values }],
+            },
+          });
+        }
+      };
 
-e.preventDefault()
+      document.getElementById("imagePredictForm").onsubmit = async function (
+        e,
+      ) {
+        e.preventDefault();
 
-showLoader()
+        showLoader();
 
-let res=await fetch("/predict",{method:"POST",body:new FormData(this)})
+        let res = await fetch("/predict-image", {
+          method: "POST",
+          body: new FormData(this),
+        });
 
-let data=await res.json()
+        let data = await res.json();
 
-hideLoader()
+        hideLoader();
 
-if(data.predictions){
+        document.getElementById("imageResult").innerHTML =
+          `Prediction: ${data.predicted_class} <br> Confidence: ${data.confidence}`;
+      };
 
-let values=data.predictions.map(p=>typeof p==="number"?p:p.prediction)
+      document.getElementById("imageExplainForm").onsubmit = async function (
+        e,
+      ) {
+        e.preventDefault();
 
-if(predictChart)predictChart.destroy()
+        showLoader();
 
-predictChart=new Chart(document.getElementById("predictChart"),{
+        let res = await fetch("/explain-image", {
+          method: "POST",
+          body: new FormData(this),
+        });
 
-type:"bar",
+        let blob = await res.blob();
 
-data:{
+        hideLoader();
 
-labels:values.map((_,i)=>"Row "+(i+1)),
+        let imgUrl = URL.createObjectURL(blob);
 
-datasets:[{label:"Prediction",data:values}]
+        document.getElementById("heatmapResult").innerHTML =
+          `<img src="${imgUrl}" width="300">`;
+      };
 
-}
+      async function explainModel() {
+        showLoader();
 
-})
+        let res = await fetch("/model-explain");
 
-}
+        let data = await res.json();
 
-}
+        hideLoader();
 
+        if (data.feature_importance) {
+          let labels = Object.keys(data.feature_importance);
 
-/* IMAGE PREDICT */
+          let values = Object.values(data.feature_importance);
 
-document.getElementById("imagePredictForm").onsubmit=async function(e){
+          if (explainChart) explainChart.destroy();
 
-e.preventDefault()
+          explainChart = new Chart(document.getElementById("explainChart"), {
+            type: "bar",
 
-showLoader()
+            data: {
+              labels: labels,
 
-let res=await fetch("/predict-image",{method:"POST",body:new FormData(this)})
+              datasets: [{ label: "Importance", data: values }],
+            },
 
-let data=await res.json()
-
-hideLoader()
-
-document.getElementById("imageResult").innerHTML=
-
-`Prediction: ${data.predicted_class} <br> Confidence: ${data.confidence}`
-
-}
-
-
-/* IMAGE EXPLAIN */
-
-document.getElementById("imageExplainForm").onsubmit=async function(e){
-
-e.preventDefault()
-
-showLoader()
-
-let res=await fetch("/explain-image",{method:"POST",body:new FormData(this)})
-
-let blob=await res.blob()
-
-hideLoader()
-
-let imgUrl=URL.createObjectURL(blob)
-
-document.getElementById("heatmapResult").innerHTML=
-
-`<img src="${imgUrl}" width="300">`
-
-}
-
-
-/* MODEL EXPLAIN */
-
-async function explainModel(){
-
-showLoader()
-
-let res=await fetch("/model-explain")
-
-let data=await res.json()
-
-hideLoader()
-
-if(data.feature_importance){
-
-let labels=Object.keys(data.feature_importance)
-
-let values=Object.values(data.feature_importance)
-
-if(explainChart)explainChart.destroy()
-
-explainChart=new Chart(document.getElementById("explainChart"),{
-
-type:"bar",
-
-data:{
-
-labels:labels,
-
-datasets:[{label:"Importance",data:values}]
-
-},
-
-options:{indexAxis:'y'}
-
-})
-
-}
-
-}
-
-</script>
-
-</body>
+            options: { indexAxis: "y" },
+          });
+        }
+      }
+    </script>
+  </body>
 </html>

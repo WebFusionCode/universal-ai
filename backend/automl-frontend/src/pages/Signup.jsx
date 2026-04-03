@@ -21,7 +21,6 @@ export default function Signup() {
       } else {
         alert("Signup failed");
       }
-
     } catch (err) {
       console.error(err);
       alert("Error signing up");
@@ -30,12 +29,8 @@ export default function Signup() {
 
   return (
     <div className="h-screen flex justify-center items-center">
-
       <div className="glass p-8 rounded-xl w-96 glow">
-
-        <h2 className="text-2xl mb-4 text-cyan-400">
-          Create Account
-        </h2>
+        <h2 className="text-2xl mb-4 text-cyan-400">Create Account</h2>
 
         <input
           value={email}
@@ -65,9 +60,7 @@ export default function Signup() {
         >
           Already have an account? Login
         </p>
-
       </div>
-
     </div>
   );
 }

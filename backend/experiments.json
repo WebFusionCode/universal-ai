@@ -1,0 +1,65 @@
+[
+    {
+        "model_version": "model_v1.pkl",
+        "model_name": "RandomForestClassifier",
+        "problem_type": "classification",
+        "score": 1.0,
+        "rows": 500,
+        "columns": 6,
+        "timestamp": "2026-03-29 14:32:57"
+    },
+    {
+        "model_version": "model_v2.pkl",
+        "model_name": "RandomForestClassifier",
+        "problem_type": "classification",
+        "score": 1.0,
+        "rows": 500,
+        "columns": 6,
+        "timestamp": "2026-03-29 15:17:45"
+    },
+    {
+        "model_version": "model_v3.pkl",
+        "model_name": "RandomForestClassifier",
+        "problem_type": "classification",
+        "score": 0.38475,
+        "rows": 100000,
+        "columns": 55,
+        "timestamp": "2026-03-30 00:12:20"
+    },
+    {
+        "model_version": "model_v4.pkl",
+        "model_name": "NoneType",
+        "problem_type": "regression",
+        "score": -999.0,
+        "rows": 624,
+        "columns": 10,
+        "timestamp": "2026-03-31 11:09:33"
+    },
+    {
+        "model_version": "model_v5.pkl",
+        "model_name": "RandomForestRegressor",
+        "problem_type": "regression",
+        "score": 0.18597529839236915,
+        "rows": 623,
+        "columns": 10,
+        "timestamp": "2026-03-31 11:37:30"
+    },
+    {
+        "model_version": "model_v6.pkl",
+        "model_name": "LogisticRegression",
+        "problem_type": "classification",
+        "score": 0.0,
+        "rows": 62,
+        "columns": 15,
+        "timestamp": "2026-03-31 11:39:55"
+    },
+    {
+        "model_version": "model_v7.pkl",
+        "model_name": "LogisticRegression",
+        "problem_type": "classification",
+        "score": 0.0,
+        "rows": 62,
+        "columns": 15,
+        "timestamp": "2026-03-31 11:43:15"
+    }
+]

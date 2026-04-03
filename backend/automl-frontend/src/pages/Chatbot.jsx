@@ -13,17 +13,24 @@ export default function Chatbot() {
 
     const res = await API.post("/chat", { message: msg });
 
+<<<<<<< ours
     setChat([
       ...newChat,
       { role: "ai", text: res.data.reply }
     ]);
+=======
+    setChat([...newChat, { role: "ai", text: res.data.reply }]);
+>>>>>>> theirs
 
     setMsg("");
   };
 
   return (
     <div className="p-6">
+<<<<<<< ours
 
+=======
+>>>>>>> theirs
       <h2 className="text-xl mb-4">AI Assistant</h2>
 
       <div className="h-96 overflow-y-auto bg-[#111] p-4 rounded-xl mb-4">
@@ -40,6 +47,7 @@ export default function Chatbot() {
         className="border p-2 w-full mb-2"
       />
 
+<<<<<<< ours
       <button
         onClick={sendMessage}
         className="bg-cyan-400 px-4 py-2 rounded"
@@ -50,3 +58,11 @@ export default function Chatbot() {
     </div>
   );
 }
+=======
+      <button onClick={sendMessage} className="bg-cyan-400 px-4 py-2 rounded">
+        Send
+      </button>
+    </div>
+  );
+}
+>>>>>>> theirs

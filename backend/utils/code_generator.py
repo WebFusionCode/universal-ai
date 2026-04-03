@@ -1,10 +1,5 @@
 def generate_training_code(model_name, feature_columns, problem_type, target_column):
-
     code = f"""
-# ==========================================
-# AUTO-GENERATED ML PIPELINE
-# ==========================================
-
 import pandas as pd
 import joblib
 
@@ -13,24 +8,12 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
-# ==========================================
-# LOAD DATA
-# ==========================================
-
 df = pd.read_csv("your_dataset.csv")
-
-# ==========================================
-# TARGET
-# ==========================================
 
 target_column = "{target_column}"
 
 X = df.drop(columns=[target_column])
 y = df[target_column]
-
-# ==========================================
-# PREPROCESSING
-# ==========================================
 
 numeric_cols = X.select_dtypes(include=["int64","float64"]).columns
 
@@ -46,21 +29,10 @@ for col in categorical_cols:
 
 X = X.fillna(0)
 
-# ==========================================
-# TRAIN TEST SPLIT
-# ==========================================
-
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
-
-# ==========================================
-# MODEL
-# ==========================================
-
-# Model: {model_name}
 """
-
     if problem_type == "classification":
         code += """
 from sklearn.ensemble import RandomForestClassifier
@@ -71,21 +43,11 @@ model = RandomForestClassifier()
 from sklearn.ensemble import RandomForestRegressor
 model = RandomForestRegressor()
 """
-
     code += """
-# ==========================================
-# TRAIN
-# ==========================================
-
 model.fit(X_train, y_train)
-
-# ==========================================
-# SAVE MODEL
-# ==========================================
 
 joblib.dump(model, "trained_model.pkl")
 
 print("Model trained and saved successfully!")
 """
-
     return code
