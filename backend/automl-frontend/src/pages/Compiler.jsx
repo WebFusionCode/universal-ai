@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import Sidebar from "../components/Sidebar";
+import API from "../services/api";
 
 const starterTemplates = {
   classification: `# Classification starter
@@ -85,6 +86,23 @@ export default function Compiler() {
     );
   };
 
+  const generateCode = async () => {
+    try {
+      setOutput("Generating ML code with AI...");
+
+      const res = await API.post("/generate-code", {
+        task: code,
+      });
+
+      setCode(res.data.code || code);
+      setOutput("AI-generated code loaded into the editor.");
+    } catch (err) {
+      setOutput(
+        err.response?.data?.detail || "Unable to generate code right now.",
+      );
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-[#0b0f19] text-slate-100">
       <Sidebar />
@@ -143,6 +161,13 @@ export default function Compiler() {
                 className="rounded-xl border border-slate-700 px-4 py-2 transition hover:border-cyan-400"
               >
                 Copy Code
+              </button>
+
+              <button
+                onClick={generateCode}
+                className="rounded-xl bg-emerald-500 px-4 py-2 font-medium text-black transition hover:scale-[1.02]"
+              >
+                Generate AI Code
               </button>
             </div>
           </section>

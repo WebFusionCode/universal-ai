@@ -15,15 +15,16 @@ export default function Signup() {
         password,
       });
 
-      if (res.data.message) {
-        alert("Signup successful");
-        navigate("/login");
-      } else {
-        alert("Signup failed");
+      if (res.data.error) {
+        alert(res.data.error);
+        return;
       }
+
+      alert("Account created");
+      navigate("/login");
     } catch (err) {
       console.error(err);
-      alert("Error signing up");
+      alert("Signup failed");
     }
   };
 

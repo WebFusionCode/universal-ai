@@ -1,7 +1,10 @@
 import axios from "axios";
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
 const API = axios.create({
-  baseURL: "http://127.0.0.1:8000",
+  baseURL: API_BASE_URL,
 });
 
 API.interceptors.request.use((req) => {
@@ -19,6 +22,10 @@ API.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem("token");
+      localStorage.removeItem("user_id");
+      localStorage.removeItem("user_email");
+      localStorage.removeItem("user_role");
+      localStorage.removeItem("user_plan");
       window.location.href = "/login";
     }
     return Promise.reject(err);

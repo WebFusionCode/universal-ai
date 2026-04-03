@@ -1,5 +1,7 @@
+import base64
 import os
 from pathlib import Path
+import uuid
 
 from dotenv import load_dotenv
 
@@ -39,7 +41,8 @@ from torch.utils.data import DataLoader
 import zipfile
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from jose import jwt
+from jose import JWTError, jwt
+from pymongo.errors import PyMongoError
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
@@ -47,6 +50,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 
+from database import (
+    models_collection,
+    subscriptions_collection,
+    teams_collection,
+    usage_collection,
+    users_collection,
+)
 from models.model_library import CLASSIFICATION_MODELS, REGRESSION_MODELS
 from models.transformer_models import TabTransformer
 from utils.automl_brain import analyze_dataset as analyze_training_dataset
@@ -67,7 +77,12 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
+        if origin.strip()
+    ]
+    or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -77,8 +92,6 @@ SECRET_KEY = "automl_secret"
 ALGORITHM = "HS256"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-fake_users_db = {}
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -105,10 +118,11 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 PREVIEW_RESPONSE_ROWS = 10
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-if OPENAI_API_KEY == "your_api_key_here":
+if OPENAI_API_KEY in {"your_api_key_here", "your_key"}:
     OPENAI_API_KEY = ""
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5").strip() or "gpt-image-1.5"
 
 training_progress = {
     "progress": 0,
@@ -124,6 +138,116 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def require_openai_client():
+    if not openai_client:
+        raise HTTPException(
+            status_code=503,
+            detail="OPENAI_API_KEY is not configured on the backend.",
+        )
+    return openai_client
+
+
+def extract_user_id_from_request(request: Request):
+    auth_header = request.headers.get("Authorization", "").strip()
+
+    if not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.split(" ", 1)[1].strip()
+
+    if not token:
+        return None
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
+
+    return payload.get("sub")
+
+
+def load_experiment_logs():
+    if not os.path.exists(EXPERIMENTS_PATH):
+        return []
+
+    with open(EXPERIMENTS_PATH, "r") as file_obj:
+        try:
+            data = json.load(file_obj)
+        except json.JSONDecodeError:
+            return []
+
+    return data if isinstance(data, list) else []
+
+
+def filter_experiments_for_user(experiments, user_id=None):
+    if not user_id:
+        return experiments
+
+    return [item for item in experiments if item.get("user_id") == user_id]
+
+
+def save_model_record(user_id, model_name, model_version, dataset_type, score=None):
+    if not user_id:
+        return
+
+    try:
+        models_collection.insert_one(
+            {
+                "user_id": user_id,
+                "model_name": model_name,
+                "model_version": model_version,
+                "dataset_type": dataset_type,
+                "score": float(score) if score is not None else None,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+    except PyMongoError:
+        return
+
+
+def track_usage_event(user_id, action, metadata=None):
+    if not user_id or not action:
+        return
+
+    document = {
+        "user_id": user_id,
+        "action": action,
+        "time": datetime.utcnow().isoformat(),
+    }
+
+    if metadata:
+        document["metadata"] = metadata
+
+    try:
+        usage_collection.insert_one(document)
+    except PyMongoError:
+        return
+
+
+def is_admin(user_id):
+    if not user_id:
+        return False
+
+    try:
+        user = users_collection.find_one({"user_id": user_id}, {"role": 1})
+    except PyMongoError:
+        return False
+
+    return (user or {}).get("role") == "admin"
+
+
+def require_admin_user(request: Request):
+    user_id = extract_user_id_from_request(request)
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if not is_admin(user_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    return user_id
 
 def update_progress(progress=None, status=None, log=None, eta=None):
     if progress is not None:
@@ -222,6 +346,7 @@ def normalize_experiment_entry(entry):
     return {
         "time": timestamp,
         "timestamp": entry.get("timestamp", timestamp),
+        "user_id": entry.get("user_id"),
         "best_model": best_model_name,
         "model_name": entry.get("model_name", best_model_name),
         "leaderboard": leaderboard_models,
@@ -239,6 +364,7 @@ def append_experiment_log(
     best_model_name,
     leaderboard_models,
     model_version,
+    user_id=None,
     problem_type=None,
     dataset_type=None,
     rows=None,
@@ -250,6 +376,7 @@ def append_experiment_log(
         {
             "time": timestamp,
             "timestamp": timestamp,
+            "user_id": user_id,
             "best_model": best_model_name,
             "model_name": best_model_name,
             "leaderboard": leaderboard_models,
@@ -263,14 +390,7 @@ def append_experiment_log(
         }
     )
 
-    if os.path.exists(EXPERIMENTS_PATH):
-        with open(EXPERIMENTS_PATH, "r") as f:
-            try:
-                logs = json.load(f)
-            except json.JSONDecodeError:
-                logs = []
-    else:
-        logs = []
+    logs = load_experiment_logs()
 
     logs.append(experiment)
 
@@ -1185,13 +1305,39 @@ def dataset_quality_score(df):
 
 
 @app.post("/signup")
-def signup(user: dict):
-    email = user["email"]
-    password = pwd_context.hash(user["password"])
+async def signup(data: dict):
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
 
-    fake_users_db[email] = password
+    if not email or not password:
+        return {"error": "Email and password are required"}
 
-    return {"message": "User created"}
+    try:
+        if users_collection.find_one({"email": email}):
+            return {"error": "User already exists"}
+
+        hashed = pwd_context.hash(password)
+        user_id = str(uuid.uuid4())
+
+        users_collection.insert_one(
+            {
+                "user_id": user_id,
+                "email": email,
+                "password": hashed,
+                "role": "user",
+                "name": "",
+                "phone": "",
+                "dob": "",
+                "profile_pic": "",
+                "created_at": datetime.utcnow().isoformat(),
+            }
+        )
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    track_usage_event(user_id, "signup", {"email": email})
+
+    return {"message": "User created", "user_id": user_id}
 
 
 
@@ -1199,19 +1345,230 @@ def signup(user: dict):
 
 
 @app.post("/login")
-def login(user: dict):
-    email = user["email"]
-    password = user["password"]
+async def login(data: dict):
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
 
-    if email not in fake_users_db:
-        return {"error": "User not found"}
+    try:
+        user = users_collection.find_one({"email": email})
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
 
-    if not pwd_context.verify(password, fake_users_db[email]):
-        return {"error": "Invalid password"}
+    if not user or not pwd_context.verify(password, user["password"]):
+        return {"error": "Invalid credentials"}
 
-    token = jwt.encode({"sub": email}, SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(
+        {"sub": user["user_id"], "exp": datetime.utcnow() + timedelta(hours=10)},
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
 
-    return {"token": token}
+    track_usage_event(user["user_id"], "login")
+
+    return {
+        "token": token,
+        "user_id": user["user_id"],
+        "email": user["email"],
+        "role": user.get("role", "user"),
+    }
+
+
+@app.get("/profile/{user_id}")
+async def get_profile(user_id: str):
+    try:
+        user = users_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0, "password": 0},
+        )
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
+
+
+@app.post("/update-profile")
+async def update_profile(data: dict, request: Request):
+    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    updates = {
+        "name": data.get("name", ""),
+        "phone": data.get("phone", ""),
+        "dob": data.get("dob", ""),
+        "profile_pic": data.get("profile_pic", ""),
+    }
+
+    try:
+        result = users_collection.update_one({"user_id": user_id}, {"$set": updates})
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    track_usage_event(user_id, "update_profile")
+
+    return {"message": "Profile updated"}
+
+
+@app.post("/subscribe")
+async def subscribe(data: dict, request: Request):
+    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
+    plan = (data.get("plan") or "free").strip().lower()
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    if plan not in {"free", "pro", "enterprise"}:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+
+    try:
+        subscriptions_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {"plan": plan, "updated_at": datetime.utcnow().isoformat()}},
+            upsert=True,
+        )
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    track_usage_event(user_id, "subscribe", {"plan": plan})
+
+    return {"message": f"Subscribed to {plan}", "plan": plan}
+
+
+@app.get("/get-plan/{user_id}")
+async def get_plan(user_id: str):
+    try:
+        subscription = subscriptions_collection.find_one({"user_id": user_id}, {"_id": 0})
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    if not subscription:
+        return {"plan": "free"}
+
+    return {"plan": subscription.get("plan", "free")}
+
+
+@app.post("/create-team")
+async def create_team(data: dict, request: Request):
+    owner_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
+
+    if not owner_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    team_id = str(uuid.uuid4())
+    name = (data.get("name") or "My Team").strip() or "My Team"
+
+    try:
+        teams_collection.insert_one(
+            {
+                "team_id": team_id,
+                "name": name,
+                "owner": owner_id,
+                "members": [owner_id],
+                "created_at": datetime.utcnow().isoformat(),
+            }
+        )
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    track_usage_event(owner_id, "create_team", {"team_id": team_id})
+
+    return {"team_id": team_id, "name": name}
+
+
+@app.post("/invite")
+async def invite(data: dict, request: Request):
+    requester_id = extract_user_id_from_request(request) or (data.get("owner_id") or "").strip()
+    team_id = (data.get("team_id") or "").strip()
+    member_id = (data.get("member_user_id") or data.get("user_id") or "").strip()
+
+    if not requester_id or not team_id or not member_id:
+        raise HTTPException(status_code=400, detail="team_id and user_id are required")
+
+    try:
+        team = teams_collection.find_one({"team_id": team_id})
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    if team.get("owner") != requester_id and not is_admin(requester_id):
+        raise HTTPException(status_code=403, detail="Only team owners or admins can invite users")
+
+    try:
+        teams_collection.update_one(
+            {"team_id": team_id},
+            {"$addToSet": {"members": member_id}},
+        )
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    track_usage_event(requester_id, "invite_to_team", {"team_id": team_id, "member_user_id": member_id})
+
+    return {"message": "User added"}
+
+
+@app.get("/teams/{user_id}")
+async def get_teams(user_id: str, request: Request):
+    requester_id = extract_user_id_from_request(request)
+
+    if requester_id and requester_id != user_id and not is_admin(requester_id):
+        raise HTTPException(status_code=403, detail="Not allowed to view these teams")
+
+    try:
+        teams = list(
+            teams_collection.find(
+                {"members": user_id},
+                {"_id": 0},
+            )
+        )
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    return {"teams": teams}
+
+
+@app.get("/admin-stats")
+async def admin_stats(request: Request):
+    require_admin_user(request)
+
+    try:
+        total_users = users_collection.count_documents({})
+        total_models = models_collection.count_documents({})
+        total_teams = teams_collection.count_documents({})
+        total_usage = usage_collection.count_documents({})
+        total_subscriptions = subscriptions_collection.count_documents({})
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+    return {
+        "users": total_users,
+        "models": total_models,
+        "teams": total_teams,
+        "usage_events": total_usage,
+        "subscriptions": total_subscriptions,
+    }
+
+
+@app.post("/track-usage")
+async def track_usage(data: dict, request: Request):
+    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
+    action = (data.get("action") or "").strip()
+
+    if not user_id or not action:
+        raise HTTPException(status_code=400, detail="user_id and action are required")
+
+    metadata = data.get("metadata")
+    track_usage_event(user_id, action, metadata)
+
+    return {"message": "Tracked"}
 
 
 
@@ -1225,8 +1582,13 @@ def login(user: dict):
 # AUTO TRAIN
 # =====================================================
 @app.post("/train")
-async def auto_train(file: UploadFile = File(...), target_column: str = Form(None)):
+async def auto_train(
+    request: Request,
+    file: UploadFile = File(...),
+    target_column: str = Form(None),
+):
     filename = (file.filename if file.filename is not None else "").lower()
+    user_id = extract_user_id_from_request(request)
 
     # ==========================================
     # IMAGE DATASET
@@ -1332,11 +1694,19 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             best_model_name=model.__class__.__name__,
             leaderboard_models=leaderboard_data["models"],
             model_version=os.path.basename(MODEL_PATH),
+            user_id=user_id,
             problem_type="image_classification",
             dataset_type="image",
             rows=len(dataset),
             columns=len(dataset.classes),
         )
+        save_model_record(
+            user_id=user_id,
+            model_name=model.__class__.__name__,
+            model_version=os.path.basename(MODEL_PATH),
+            dataset_type="image",
+        )
+        track_usage_event(user_id, "train_image_model", {"model_name": model.__class__.__name__})
 
         return {
             "dataset_type": "image",
@@ -1474,11 +1844,19 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
                         best_model_name="Prophet",
                         leaderboard_models=leaderboard_data["models"],
                         model_version=os.path.basename(MODEL_PATH),
+                        user_id=user_id,
                         problem_type="time_series_multi",
                         dataset_type="time_series",
                         rows=len(df),
                         columns=len(df.columns),
                     )
+                    save_model_record(
+                        user_id=user_id,
+                        model_name="Prophet",
+                        model_version=os.path.basename(MODEL_PATH),
+                        dataset_type="time_series",
+                    )
+                    track_usage_event(user_id, "train_time_series_model", {"model_name": "Prophet"})
 
                     return {
                         "dataset_type": "time_series",
@@ -1678,11 +2056,28 @@ async def auto_train(file: UploadFile = File(...), target_column: str = Form(Non
             best_model_name=best_model_name,
             leaderboard_models=leaderboard_data["models"],
             model_version=model_filename,
+            user_id=user_id,
             problem_type=problem_type,
             dataset_type="tabular",
             rows=len(df),
             columns=len(df.columns),
             score=float(best_score),
+        )
+        save_model_record(
+            user_id=user_id,
+            model_name=best_model_name,
+            model_version=model_filename,
+            dataset_type="tabular",
+            score=float(best_score),
+        )
+        track_usage_event(
+            user_id,
+            "train_tabular_model",
+            {
+                "model_name": best_model_name,
+                "problem_type": problem_type,
+                "score": float(best_score),
+            },
         )
         # ==========================
         # DATASET QUALITY
@@ -2394,17 +2789,9 @@ CMD ["python", "generated_pipeline.py"]
 # EXPERIMENTS
 # =====================================================
 @app.get("/experiments")
-def get_experiments():
-
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"total_experiments": 0, "experiments": []}
-
-    with open(EXPERIMENTS_PATH, "r") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
-            data = []
-
+def get_experiments(request: Request):
+    user_id = extract_user_id_from_request(request)
+    data = filter_experiments_for_user(load_experiment_logs(), user_id)
     normalized = [normalize_experiment_entry(item) for item in data]
 
     return {
@@ -2420,29 +2807,29 @@ def get_experiments():
 # AUTO INSIGHTS
 # =====================================================
 @app.get("/insights")
-def get_insights():
-
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"error": "No experiments found"}
-
-    with open(EXPERIMENTS_PATH, "r") as f:
-        data = json.load(f)
+def get_insights(request: Request):
+    user_id = extract_user_id_from_request(request)
+    data = filter_experiments_for_user(load_experiment_logs(), user_id)
 
     if len(data) == 0:
         return {"error": "No experiments to analyze"}
 
-    # Extract scores
-    scores = [exp["score"] for exp in data]
-
-    # Best experiment
-    best_exp = max(data, key=lambda x: x["score"])
+    scored_experiments = [
+        exp for exp in data if isinstance(exp.get("score"), (int, float))
+    ]
+    best_exp = (
+        max(scored_experiments, key=lambda x: x["score"])
+        if scored_experiments
+        else data[-1]
+    )
+    scores = [exp["score"] for exp in scored_experiments]
 
     return {
         "best_model": best_exp["model_name"],
-        "best_score": round(best_exp["score"], 4),
+        "best_score": round(best_exp["score"], 4) if scores else None,
         "best_version": best_exp["model_version"],
         "total_experiments": len(data),
-        "average_score": round(sum(scores) / len(scores), 4)
+        "average_score": round(sum(scores) / len(scores), 4) if scores else None,
     }
     
     
@@ -2456,13 +2843,9 @@ def get_insights():
 # AI INSIGHTS (CHATGPT-LIKE)
 # =====================================================
 @app.get("/ai-insights")
-def get_ai_insights():
-
-    if not os.path.exists(EXPERIMENTS_PATH):
-        return {"error": "No experiments found"}
-
-    with open(EXPERIMENTS_PATH, "r") as f:
-        data = json.load(f)
+def get_ai_insights(request: Request):
+    user_id = extract_user_id_from_request(request)
+    data = filter_experiments_for_user(load_experiment_logs(), user_id)
 
     if len(data) == 0:
         return {"error": "No experiments available"}
@@ -2471,8 +2854,8 @@ def get_ai_insights():
 
     insights = [
         f"Best model: {latest['model_name']}",
-        f"Score: {round(latest['score'],4)}",
-        f"Dataset rows: {latest['rows']}"
+        f"Score: {round(latest['score'],4) if isinstance(latest.get('score'), (int, float)) else 'N/A'}",
+        f"Dataset rows: {latest.get('rows', 'N/A')}"
     ]
 
     return {
@@ -2516,7 +2899,19 @@ def download_latest_model():
 
 
 @app.get("/leaderboard")
-def get_leaderboard():
+def get_leaderboard(request: Request):
+    user_id = extract_user_id_from_request(request)
+    user_experiments = filter_experiments_for_user(load_experiment_logs(), user_id)
+
+    if user_experiments:
+        latest_experiment = normalize_experiment_entry(user_experiments[-1])
+        return build_leaderboard_payload(
+            best_model_name=latest_experiment["best_model"],
+            model_version=latest_experiment.get("model_version") or os.path.basename(MODEL_PATH),
+            models=latest_experiment.get("leaderboard", []),
+            dataset_type=latest_experiment.get("dataset_type"),
+            problem_type=latest_experiment.get("problem_type"),
+        )
 
     if not os.path.exists(LEADERBOARD_PATH):
         return {"error": "No leaderboard found. Train model first."}
@@ -2599,6 +2994,157 @@ async def auto_ml_insights(file: UploadFile = File(...), target_column: str = Fo
         return auto_ml_recommendation(df, target_column)
     except ValueError as exc:
         return {"error": str(exc)}
+
+
+@app.post("/generate-image")
+async def generate_image(request: Request, data: dict = Body(...)):
+    prompt = (data.get("prompt") or "").strip()
+    user_id = extract_user_id_from_request(request)
+
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    client = require_openai_client()
+
+    try:
+        response = client.images.generate(
+            model=OPENAI_IMAGE_MODEL,
+            prompt=prompt,
+            size="1024x1024",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    image = response.data[0]
+    image_url = getattr(image, "url", None)
+    image_b64 = getattr(image, "b64_json", None)
+
+    if image_url:
+        track_usage_event(user_id, "generate_image", {"prompt_length": len(prompt)})
+        return {"image_url": image_url}
+
+    if image_b64:
+        track_usage_event(user_id, "generate_image", {"prompt_length": len(prompt)})
+        return {"image_url": f"data:image/png;base64,{image_b64}"}
+
+    raise HTTPException(status_code=502, detail="Image generation returned no usable image output.")
+
+
+@app.post("/adversarial-test")
+async def adversarial_test(request: Request, file: UploadFile = File(...)):
+    filename = (file.filename or "").lower()
+    user_id = extract_user_id_from_request(request)
+
+    if filename.endswith(".csv"):
+        df = pd.read_csv(file.file, sep=None, engine="python")
+    elif filename.endswith(".xlsx"):
+        df = pd.read_excel(file.file)
+    else:
+        return {"error": "Unsupported file format"}
+
+    noisy_df = df.copy()
+    numeric_columns = noisy_df.select_dtypes(include=["float", "int"]).columns.tolist()
+
+    for column in numeric_columns:
+        noise = np.random.normal(0, 0.1, len(noisy_df))
+        noisy_df[column] = noisy_df[column] * (1 + noise)
+
+    preview = (
+        noisy_df.head(PREVIEW_RESPONSE_ROWS)
+        .astype(object)
+        .where(pd.notna(noisy_df.head(PREVIEW_RESPONSE_ROWS)), None)
+        .to_dict(orient="records")
+    )
+
+    track_usage_event(user_id, "adversarial_test", {"rows": len(noisy_df)})
+
+    return {
+        "message": "Adversarial noise added",
+        "rows": len(noisy_df),
+        "numeric_columns": numeric_columns,
+        "preview": preview,
+    }
+
+
+@app.post("/generate-code")
+async def generate_code(request: Request, data: dict = Body(...)):
+    task = (data.get("task") or "").strip()
+    user_id = extract_user_id_from_request(request)
+
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+
+    client = require_openai_client()
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Generate clean ML Python code only. Avoid explanations unless asked."},
+                {"role": "user", "content": task},
+            ],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    generated_code = (response.choices[0].message.content or "").strip()
+
+    if generated_code.startswith("```"):
+        generated_code = generated_code.strip("`")
+        generated_code = generated_code.replace("python\n", "", 1)
+
+    track_usage_event(user_id, "generate_code", {"task_length": len(task)})
+
+    return {"code": generated_code}
+
+
+@app.post("/text-to-speech")
+async def text_to_speech(request: Request, data: dict = Body(...)):
+    text = (data.get("text") or "").strip()
+    voice = (data.get("voice") or "coral").strip() or "coral"
+    user_id = extract_user_id_from_request(request)
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    client = require_openai_client()
+
+    try:
+        audio_response = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice=voice,
+            input=text,
+            response_format="mp3",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    audio_bytes = b""
+
+    if hasattr(audio_response, "read"):
+        audio_bytes = audio_response.read()
+    elif hasattr(audio_response, "content"):
+        audio_bytes = audio_response.content
+    else:
+        try:
+            audio_bytes = bytes(audio_response)
+        except Exception:
+            audio_bytes = b""
+
+    if not audio_bytes:
+        raise HTTPException(status_code=502, detail="Text-to-speech returned no audio data.")
+
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+    track_usage_event(user_id, "text_to_speech", {"voice": voice, "text_length": len(text)})
+
+    return {"audio_url": f"data:audio/mpeg;base64,{audio_b64}"}
+
+
+@app.post("/video-ai")
+async def video_ai(request: Request):
+    track_usage_event(extract_user_id_from_request(request), "video_ai_placeholder")
+    return {"message": "Video model coming soon"}
 
 
 @app.post("/chat")

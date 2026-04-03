@@ -3,6 +3,9 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import Loader from "./components/Loader";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AdversarialTesting from "./pages/AdversarialTesting";
+import Admin from "./pages/Admin";
+import AudioAI from "./pages/AudioAI";
 import Compiler from "./pages/Compiler";
 import Dashboard from "./pages/Dashboard";
 import DownloadCenter from "./pages/Download";
@@ -14,8 +17,12 @@ import Leaderboard from "./pages/Leaderboard";
 import Login from "./pages/Login";
 import ModelExplain from "./pages/ModelExplain";
 import Predict from "./pages/Predict";
+import Pricing from "./pages/Pricing";
+import Profile from "./pages/Profile";
 import Signup from "./pages/Signup";
+import Teams from "./pages/Teams";
 import Train from "./pages/Train";
+import VideoAI from "./pages/VideoAI";
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -114,6 +121,33 @@ export default function App() {
         />
 
         <Route
+          path="/adversarial-testing"
+          element={
+            <ProtectedRoute>
+              <AdversarialTesting />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/audio-ai"
+          element={
+            <ProtectedRoute>
+              <AudioAI />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/video-ai"
+          element={
+            <ProtectedRoute>
+              <VideoAI />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/experiments"
           element={
             <ProtectedRoute>
@@ -127,6 +161,42 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Compiler />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/pricing"
+          element={
+            <ProtectedRoute>
+              <Pricing />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/teams"
+          element={
+            <ProtectedRoute>
+              <Teams />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <Admin />
             </ProtectedRoute>
           }
         />

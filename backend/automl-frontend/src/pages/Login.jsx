@@ -15,23 +15,20 @@ export default function Login() {
         password,
       });
 
-      if (res.data.token) {
-        localStorage.setItem("token", res.data.token);
-        localStorage.setItem("user_email", email);
-        navigate("/dashboard");
-      } else {
-        alert(res.data.error || "Login failed");
+      if (res.data.error) {
+        alert(res.data.error);
+        return;
       }
+
+      localStorage.setItem("token", res.data.token);
+      localStorage.setItem("user_id", res.data.user_id);
+      localStorage.setItem("user_email", res.data.email || email);
+      localStorage.setItem("user_role", res.data.role || "user");
+      navigate("/dashboard");
     } catch (err) {
       console.error(err);
-      alert("Error logging in");
+      alert("Login failed");
     }
-  };
-
-  const handleGuestAccess = () => {
-    localStorage.setItem("token", "guest-session");
-    localStorage.setItem("user_email", "guest@automl.local");
-    navigate("/dashboard");
   };
 
   return (
@@ -59,13 +56,6 @@ export default function Login() {
           className="w-full bg-cyan-400 text-black px-4 py-2 rounded-lg glow hover:scale-105 transition"
         >
           Login
-        </button>
-
-        <button
-          onClick={handleGuestAccess}
-          className="w-full mt-3 border border-gray-600 p-2 rounded hover:bg-gray-800"
-        >
-          Continue as Guest
         </button>
       </div>
     </div>

@@ -124,7 +124,10 @@ export default function Dashboard() {
               <button
                 onClick={() => {
                   localStorage.removeItem("token");
+                  localStorage.removeItem("user_id");
                   localStorage.removeItem("user_email");
+                  localStorage.removeItem("user_role");
+                  localStorage.removeItem("user_plan");
                   navigate("/login");
                 }}
                 className="rounded-2xl border border-red-500/60 px-5 py-3 text-red-300 transition hover:bg-red-500/15"

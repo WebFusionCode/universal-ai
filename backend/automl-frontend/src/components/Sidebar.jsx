@@ -1,19 +1,26 @@
 import { NavLink } from "react-router-dom";
 
-const navItems = [
+const baseNavItems = [
   { label: "Dashboard", to: "/dashboard" },
   { label: "Train", to: "/train" },
   { label: "Predict", to: "/predict" },
-  { label: "Image AI", to: "/image-ai" },
+  { label: "Image Generator", to: "/image-ai" },
+  { label: "Adversarial Testing", to: "/adversarial-testing" },
+  { label: "Audio AI", to: "/audio-ai" },
+  { label: "Video AI", to: "/video-ai" },
   { label: "Leaderboard", to: "/leaderboard" },
   { label: "Insights", to: "/insights" },
   { label: "Experiments", to: "/experiments" },
+  { label: "Teams", to: "/teams" },
+  { label: "Pricing", to: "/pricing" },
   { label: "Download", to: "/download" },
   { label: "Compiler", to: "/compiler" },
+  { label: "Profile", to: "/profile" },
 ];
 
 function getProfileLabel() {
   const storedEmail = localStorage.getItem("user_email");
+  const storedUserId = localStorage.getItem("user_id");
 
   if (!storedEmail) {
     return {
@@ -31,12 +38,16 @@ function getProfileLabel() {
 
   return {
     name: storedEmail.split("@")[0].replace(/[._-]+/g, " "),
-    subtext: storedEmail,
+    subtext: storedUserId || storedEmail,
   };
 }
 
 export default function Sidebar() {
   const profile = getProfileLabel();
+  const isAdminUser = localStorage.getItem("user_role") === "admin";
+  const navItems = isAdminUser
+    ? [...baseNavItems, { label: "Admin", to: "/admin" }]
+    : baseNavItems;
 
   return (
     <aside className="glass flex h-screen w-72 flex-col border-r border-white/10 p-5">
@@ -69,12 +80,15 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="mt-auto rounded-2xl border-t border-white/10 pt-4">
+      <NavLink
+        to="/profile"
+        className="mt-auto rounded-2xl border-t border-white/10 pt-4 transition hover:text-cyan-300"
+      >
         <p className="text-sm font-medium text-slate-100 capitalize">
           {profile.name}
         </p>
         <p className="mt-1 text-xs text-slate-500">{profile.subtext}</p>
-      </div>
+      </NavLink>
     </aside>
   );
 }

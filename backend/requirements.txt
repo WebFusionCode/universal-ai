@@ -21,3 +21,4 @@ catboost
 optuna
 openai
 python-dotenv
+pymongo
