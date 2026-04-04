@@ -40,13 +40,27 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
-from database import (
-    models_collection,
-    subscriptions_collection,
-    teams_collection,
-    usage_collection,
-    users_collection,
-)
+# MongoDB Connection
+from pymongo import MongoClient
+
+MONGO_URL = os.getenv("MONGO_URL")
+
+try:
+    client = MongoClient(MONGO_URL)
+    db = client["automl"]
+    users_collection = db["users"]
+    models_collection = db["models"]
+    subscriptions_collection = db["subscriptions"]
+    teams_collection = db["teams"]
+    usage_collection = db["usage"]
+    print("✅ MongoDB connected")
+except Exception as e:
+    print("❌ MongoDB error:", e)
+    users_collection = None
+    models_collection = None
+    subscriptions_collection = None
+    teams_collection = None
+    usage_collection = None
 
 print("🚀 Starting FastAPI app...")
 
@@ -344,6 +358,9 @@ def filter_experiments_for_user(experiments, user_id=None):
 
 
 def save_model_record(user_id, model_name, model_version, dataset_type, score=None):
+    if models_collection is None:
+        return
+
     if not user_id:
         return
 
@@ -363,6 +380,9 @@ def save_model_record(user_id, model_name, model_version, dataset_type, score=No
 
 
 def track_usage_event(user_id, action, metadata=None):
+    if usage_collection is None:
+        return
+
     if not user_id or not action:
         return
 
@@ -382,6 +402,9 @@ def track_usage_event(user_id, action, metadata=None):
 
 
 def is_admin(user_id):
+    if users_collection is None:
+        return False
+
     if not user_id:
         return False
 
@@ -1495,6 +1518,9 @@ def dataset_quality_score(df):
 
 @app.post("/signup")
 async def signup(data: dict):
+    if users_collection is None:
+        return {"error": "Database not connected"}
+
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
 
@@ -1535,6 +1561,9 @@ async def signup(data: dict):
 
 @app.post("/login")
 async def login(data: dict):
+    if users_collection is None:
+        return {"error": "Database not connected"}
+
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
 
@@ -1580,6 +1609,9 @@ async def get_profile(user_id: str):
 
 @app.post("/update-profile")
 async def update_profile(data: dict, request: Request):
+    if users_collection is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
     user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
 
     if not user_id:
