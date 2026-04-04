@@ -41,7 +41,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from passlib.context import CryptContext
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password: str):
+    return pwd_context.hash(password)
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
 
                  
 class UserSignup(BaseModel):
@@ -1349,14 +1357,14 @@ async def signup(user: UserSignup):
             return {"error": "User already exists"}
 
                 
-        hashed = pwd_context.hash(user.password)
+        hashed_password = hash_password(user.password)
         user_id = str(uuid.uuid4())
 
         users_collection.insert_one(
             {
                 "user_id": user_id,
                 "email": user.email,
-                "password": hashed,
+                "password": hashed_password,
                 "role": "user",
                 "name": "",
                 "phone": "",
@@ -1376,35 +1384,32 @@ async def signup(user: UserSignup):
 
 
 @app.post("/login")
-async def login(user: UserLogin):
+async def login(data: UserLogin):
     try:
         if users_collection is None:
             return {"error": "Database not connected"}
 
-        existing = users_collection.find_one({"email": user.email})
+        user = users_collection.find_one({"email": data.email})
 
-        if not existing:
-            return {"error": "User not found"}
-
-        if not pwd_context.verify(user.password, existing["password"]):
-            return {"error": "Invalid password"}
+        if not user or not verify_password(data.password, user["password"]):
+            return {"error": "Invalid credentials"}
 
         token = jwt.encode(
             {
-                "sub": existing["user_id"],
+                "sub": user["user_id"],
                 "exp": datetime.utcnow() + timedelta(hours=10),
             },
             SECRET_KEY,
             algorithm=ALGORITHM,
         )
 
-        track_usage_event(existing["user_id"], "login")
+        track_usage_event(user["user_id"], "login")
 
         return {
             "token": token,
-            "user_id": existing["user_id"],
-            "email": existing["email"],
-            "role": existing.get("role", "user"),
+            "user_id": user["user_id"],
+            "email": user["email"],
+            "role": user.get("role", "user"),
         }
 
     except Exception as e:
