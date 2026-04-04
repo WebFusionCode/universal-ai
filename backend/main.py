@@ -125,7 +125,11 @@ training_progress = {
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(IMAGE_DATASET_FOLDER, exist_ok=True)
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+else:
+    print("⚠️ Static directory not found, skipping mount")
+
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
