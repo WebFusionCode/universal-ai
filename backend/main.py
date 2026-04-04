@@ -33,6 +33,7 @@ try:
     from pymongo.errors import PyMongoError
 except Exception:
     PyMongoError = Exception
+from pydantic import BaseModel, EmailStr
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
@@ -40,23 +41,36 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
+# Pydantic Models
+class UserSignup(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
 # MongoDB Connection
 from pymongo import MongoClient
 
 MONGO_URL = os.getenv("MONGO_URL")
 
+users_collection = None
+
 try:
-    client = MongoClient(MONGO_URL)
-    db = client["automl"]
-    users_collection = db["users"]
-    models_collection = db["models"]
-    subscriptions_collection = db["subscriptions"]
-    teams_collection = db["teams"]
-    usage_collection = db["usage"]
-    print("✅ MongoDB connected")
+    if MONGO_URL:
+        client = MongoClient(MONGO_URL)
+        db = client["automl"]
+        users_collection = db["users"]
+        models_collection = db["models"]
+        subscriptions_collection = db["subscriptions"]
+        teams_collection = db["teams"]
+        usage_collection = db["usage"]
+        print("✅ MongoDB connected")
+    else:
+        print("❌ MONGO_URL missing")
 except Exception as e:
-    print("❌ MongoDB error:", e)
-    users_collection = None
+    print("❌ Mongo Error:", e)
     models_collection = None
     subscriptions_collection = None
     teams_collection = None
@@ -1517,42 +1531,40 @@ def dataset_quality_score(df):
 
 
 @app.post("/signup")
-async def signup(data: dict):
-    if users_collection is None:
-        return {"error": "Database not connected"}
-
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-
-    if not email or not password:
-        return {"error": "Email and password are required"}
-
+async def signup(user: UserSignup):
     try:
-        if users_collection.find_one({"email": email}):
+        if users_collection is None:
+            return {"error": "Database not connected"}
+
+        # check existing
+        existing = users_collection.find_one({"email": user.email})
+
+        if existing:
             return {"error": "User already exists"}
 
-        hashed = pwd_context.hash(password)
+        # insert
+        hashed = pwd_context.hash(user.password)
         user_id = str(uuid.uuid4())
 
-        users_collection.insert_one(
-            {
-                "user_id": user_id,
-                "email": email,
-                "password": hashed,
-                "role": "user",
-                "name": "",
-                "phone": "",
-                "dob": "",
-                "profile_pic": "",
-                "created_at": datetime.utcnow().isoformat(),
-            }
-        )
-    except PyMongoError as exc:
-        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+        users_collection.insert_one({
+            "user_id": user_id,
+            "email": user.email,
+            "password": hashed,
+            "role": "user",
+            "name": "",
+            "phone": "",
+            "dob": "",
+            "profile_pic": "",
+            "created_at": datetime.utcnow().isoformat(),
+        })
 
-    track_usage_event(user_id, "signup", {"email": email})
+        track_usage_event(user_id, "signup", {"email": user.email})
 
-    return {"message": "User created", "user_id": user_id}
+        return {"message": "Signup successful", "user_id": user_id}
+
+    except Exception as e:
+        print("❌ SIGNUP ERROR:", e)
+        return {"error": str(e)}
 
 
 
@@ -1560,35 +1572,37 @@ async def signup(data: dict):
 
 
 @app.post("/login")
-async def login(data: dict):
-    if users_collection is None:
-        return {"error": "Database not connected"}
-
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-
+async def login(user: UserLogin):
     try:
-        user = users_collection.find_one({"email": email})
-    except PyMongoError as exc:
-        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+        if users_collection is None:
+            return {"error": "Database not connected"}
 
-    if not user or not pwd_context.verify(password, user["password"]):
-        return {"error": "Invalid credentials"}
+        existing = users_collection.find_one({"email": user.email})
 
-    token = jwt.encode(
-        {"sub": user["user_id"], "exp": datetime.utcnow() + timedelta(hours=10)},
-        SECRET_KEY,
-        algorithm=ALGORITHM,
-    )
+        if not existing:
+            return {"error": "User not found"}
 
-    track_usage_event(user["user_id"], "login")
+        if not pwd_context.verify(user.password, existing["password"]):
+            return {"error": "Invalid password"}
 
-    return {
-        "token": token,
-        "user_id": user["user_id"],
-        "email": user["email"],
-        "role": user.get("role", "user"),
-    }
+        token = jwt.encode(
+            {"sub": existing["user_id"], "exp": datetime.utcnow() + timedelta(hours=10)},
+            SECRET_KEY,
+            algorithm=ALGORITHM,
+        )
+
+        track_usage_event(existing["user_id"], "login")
+
+        return {
+            "token": token,
+            "user_id": existing["user_id"],
+            "email": existing["email"],
+            "role": existing.get("role", "user"),
+        }
+
+    except Exception as e:
+        print("❌ LOGIN ERROR:", e)
+        return {"error": str(e)}
 
 
 @app.get("/profile/{user_id}")
