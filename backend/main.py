@@ -37,6 +37,12 @@ EXPERIMENTS_PATH = os.path.join(BASE_DIR, "experiments.json")
 
 PREVIEW_RESPONSE_ROWS = 5
 
+training_progress = {
+    "progress": 0,
+    "status": "Idle",
+    "message": ""
+}
+
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 if not os.path.exists(EXPERIMENTS_PATH):
@@ -429,21 +435,11 @@ def require_admin_user(request: Request):
     return user_id
 
 
-def update_progress(progress=None, status=None, log=None, eta=None):
-    if progress is not None:
-        training_progress["progress"] = progress
-
-    if status is not None:
-        training_progress["status"] = status
-
-    if log is not None:
-        training_progress["logs"].append(log)
-
-                                
-        training_progress["logs"] = training_progress["logs"][-20:]
-
-    if eta is not None:
-        training_progress["eta"] = eta
+def update_progress(progress, status, message):
+    global training_progress
+    training_progress["progress"] = progress
+    training_progress["status"] = status
+    training_progress["message"] = message
 
 
 def build_leaderboard_payload(
