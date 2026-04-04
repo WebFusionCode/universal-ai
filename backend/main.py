@@ -35,6 +35,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ===== DEPLOYMENT SETTINGS =====
 LIGHTWEIGHT_DEPLOYMENT = True   # for Render free tier
 MAX_LIGHTWEIGHT_ROWS = 10000    # limit dataset size
+RUN_LOCAL_TRAINING = True       # hybrid architecture flag
 
 # ===== DEFAULT SETTINGS =====
 PREVIEW_RESPONSE_ROWS = 5
@@ -1836,6 +1837,14 @@ async def auto_train(
                 return {"error": "Failed to read Excel file"}
 
         df.columns = df.columns.str.strip()
+
+        if RUN_LOCAL_TRAINING and len(df) > MAX_LIGHTWEIGHT_ROWS:
+            return {
+                "strategy": "local",
+                "message": f"Dataset exceeds {MAX_LIGHTWEIGHT_ROWS} rows. Running locally provides GPU/CPU unleashed performance without Render's RAM limits.",
+                "download_script": f"/download-training-script?target={target_column}&file={file.filename}"
+            }
+
         update_progress(10, "Dataset Loaded", "Dataset successfully loaded")
 
         df = df.dropna(axis=1, how="all")
@@ -2707,6 +2716,37 @@ async def shap_explain(file: UploadFile = File(...)):
                                                        
                               
                                                        
+@app.get("/download-training-script")
+async def download_training_script(target: str = "", file: str = ""):
+    script_content = f"""import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+
+# Using the provided dataset and target column
+df = pd.read_csv("{file}")
+
+target_col = "{target}"
+if target_col not in df.columns:
+    print(f"Error: Target column '{{target_col}}' not found in dataset")
+    exit(1)
+
+X = df.drop(target_col, axis=1)
+y = df[target_col]
+
+# Handle basic categorical encoding globally for demo script
+X = pd.get_dummies(X)
+
+print("Starting Local Training 🚀...")
+model = RandomForestClassifier(n_estimators=100)
+model.fit(X, y)
+
+print("Training Done ✅")
+"""
+    file_path = os.path.join(BASE_DIR, "train_local.py")
+    with open(file_path, "w") as f:
+        f.write(script_content)
+    
+    return FileResponse(file_path, filename="train_local.py", media_type="text/x-python")
+
 @app.get("/download-code/{format}")
 def download_code(format: str):
 

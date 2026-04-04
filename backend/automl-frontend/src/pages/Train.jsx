@@ -189,6 +189,10 @@ export default function Train() {
       setDatasetType(resolveDatasetType(res.data, datasetType));
       setResult(res.data);
 
+      if (res.data.strategy === "local") {
+        return;
+      }
+
       if (datasetType === "tabular" && targetColumn) {
         const insightsFormData = new FormData();
         insightsFormData.append("file", file);
@@ -391,7 +395,31 @@ export default function Train() {
               )}
             </div>
 
-            {result && (
+            {result && result.strategy === "local" ? (
+              <div className="glass mt-6 rounded-3xl border border-amber-400/20 bg-amber-400/10 p-6">
+                <div className="flex flex-col items-center space-y-4 text-center">
+                  <div className="rounded-full bg-amber-400/20 p-4">
+                    <svg className="h-8 w-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                  </div>
+                  <h2 className="text-xl font-bold text-amber-400">Local Training Recommended</h2>
+                  <p className="max-w-md text-sm text-slate-300">
+                    {result.message}
+                  </p>
+                  <button
+                    onClick={() =>
+                      window.open(
+                        `${backendBaseUrl}${result.download_script}`,
+                        "_blank",
+                        "noopener,noreferrer"
+                      )
+                    }
+                    className="mt-2 rounded-2xl bg-amber-400 px-6 py-3 font-medium text-black shadow-[0_0_15px_rgba(251,191,36,0.4)] transition hover:scale-105"
+                  >
+                    Download Local Script
+                  </button>
+                </div>
+              </div>
+            ) : result && (
               <div className="glass rounded-3xl border border-cyan-400/20 p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
