@@ -55,109 +55,43 @@ from pymongo import MongoClient
 
 MONGO_URL = os.getenv("MONGO_URL")
 
-users_collection = None
+if not MONGO_URL:
+    print("❌ MONGO_URL missing")
+else:
+    print("✅ MONGO_URL found")
 
-try:
-    if MONGO_URL:
-        client = MongoClient(MONGO_URL)
-        db = client["automl"]
-        users_collection = db["users"]
-        models_collection = db["models"]
-        subscriptions_collection = db["subscriptions"]
-        teams_collection = db["teams"]
-        usage_collection = db["usage"]
-        print("✅ MongoDB connected")
-    else:
-        print("❌ MONGO_URL missing")
-except Exception as e:
-    print("❌ Mongo Error:", e)
-    models_collection = None
-    subscriptions_collection = None
-    teams_collection = None
-    usage_collection = None
+client = MongoClient(MONGO_URL)
+db = client["automl_db"]
+users_collection = db["users"]
+models_collection = db["models"]
+subscriptions_collection = db["subscriptions"]
+teams_collection = db["teams"]
+usage_collection = db["usage"]
 
 print("🚀 Starting FastAPI app...")
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-
-
-
-# =====================================================
-# APP SETUP
-# =====================================================
-
 app = FastAPI()
 print("✅ App created")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        origin.strip()
-        for origin in os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
-        if origin.strip()
-    ]
-    or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# MongoDB Connection
+from pymongo import MongoClient
 
-SECRET_KEY = "automl_secret"
-ALGORITHM = "HS256"
+MONGO_URL = os.getenv("MONGO_URL")
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
-TEMPLATES_DIR = BASE_DIR / "templates"
-
-UPLOAD_FOLDER = str(BASE_DIR / "uploads")
-IMAGE_DATASET_FOLDER = str(BASE_DIR / "image_dataset")
-MODEL_PATH = str(BASE_DIR / "best_model.pkl")
-CNN_MODEL_PATH = str(BASE_DIR / "cnn_model.pth")
-MODEL_DIR = str(BASE_DIR / "models")
-GENERATED_PIPELINE_PATH = str(BASE_DIR / "generated_pipeline.py")
-GENERATED_NOTEBOOK_PATH = str(BASE_DIR / "generated_notebook.ipynb")
-GENERATED_API_PATH = str(BASE_DIR / "generated_api.py")
-GENERATED_REQUIREMENTS_PATH = str(BASE_DIR / "generated_requirements.txt")
-GENERATED_DOCKERFILE_PATH = str(BASE_DIR / "generated_Dockerfile")
-DOCKER_PACKAGE_PATH = str(BASE_DIR / "docker_package.zip")
-FULL_PROJECT_ZIP_PATH = str(BASE_DIR / "full_project.zip")
-EXPERIMENTS_PATH = str(BASE_DIR / "experiments.json")
-LEADERBOARD_PATH = str(BASE_DIR / "leaderboard.pkl")
-TRAINING_REPORT_PATH = str(BASE_DIR / "training_report.pkl")
-os.makedirs(MODEL_DIR, exist_ok=True)
-
-PREVIEW_RESPONSE_ROWS = 10
-LIGHTWEIGHT_DEPLOYMENT = (
-    os.getenv("LIGHTWEIGHT_DEPLOYMENT", "1").strip().lower()
-    not in {"0", "false", "no"}
-)
-MAX_LIGHTWEIGHT_ROWS = int(os.getenv("MAX_LIGHTWEIGHT_ROWS", "25000"))
-LIGHTWEIGHT_BLOCKED_MODELS = {"CatBoost", "LightGBM", "TabTransformer", "XGBoost"}
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-if OPENAI_API_KEY in {"your_api_key_here", "your_key"}:
-    OPENAI_API_KEY = ""
-
-OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5").strip() or "gpt-image-1.5"
-
-training_progress = {
-    "progress": 0,
-    "status": "Idle",
-    "logs": [],
-    "eta": None
-}
-
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(IMAGE_DATASET_FOLDER, exist_ok=True)
-
-if os.path.exists(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+if not MONGO_URL:
+    print("❌ MONGO_URL missing")
 else:
-    print("⚠️ Static directory not found, skipping mount")
+    print("✅ MONGO_URL found")
+
+client = MongoClient(MONGO_URL)
+db = client["automl_db"]
+users_collection = db["users"]
+models_collection = db["models"]
+subscriptions_collection = db["subscriptions"]
+teams_collection = db["teams"]
+usage_collection = db["usage"]
 
 
 def lightweight_feature_message(feature_name):
