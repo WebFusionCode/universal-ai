@@ -3,8 +3,10 @@ import os
 try:
     from dotenv import load_dotenv
 except Exception:
+
     def load_dotenv(*args, **kwargs):
         return False
+
 
 try:
     from pymongo import MongoClient

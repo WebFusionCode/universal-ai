@@ -95,7 +95,10 @@ export default function Profile() {
                 <input
                   value={user.name || ""}
                   onChange={(event) =>
-                    setUser((current) => ({ ...current, name: event.target.value }))
+                    setUser((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
                   }
                   placeholder="Name"
                   className="w-full rounded-2xl border border-slate-700 bg-black/60 p-3"
@@ -116,7 +119,10 @@ export default function Profile() {
                 <input
                   value={user.phone || ""}
                   onChange={(event) =>
-                    setUser((current) => ({ ...current, phone: event.target.value }))
+                    setUser((current) => ({
+                      ...current,
+                      phone: event.target.value,
+                    }))
                   }
                   placeholder="Phone"
                   className="w-full rounded-2xl border border-slate-700 bg-black/60 p-3"
@@ -128,7 +134,10 @@ export default function Profile() {
                 <input
                   value={user.dob || ""}
                   onChange={(event) =>
-                    setUser((current) => ({ ...current, dob: event.target.value }))
+                    setUser((current) => ({
+                      ...current,
+                      dob: event.target.value,
+                    }))
                   }
                   placeholder="DOB"
                   className="w-full rounded-2xl border border-slate-700 bg-black/60 p-3"
@@ -136,7 +145,9 @@ export default function Profile() {
               </label>
 
               <label className="space-y-2 md:col-span-2">
-                <span className="text-sm text-slate-400">Profile Image URL</span>
+                <span className="text-sm text-slate-400">
+                  Profile Image URL
+                </span>
                 <input
                   value={user.profile_pic || ""}
                   onChange={(event) =>

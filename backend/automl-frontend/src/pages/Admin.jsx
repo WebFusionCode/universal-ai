@@ -60,7 +60,10 @@ export default function Admin() {
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {statCards.map((card) => (
-            <div key={card.key} className="glass rounded-3xl border border-white/10 p-5">
+            <div
+              key={card.key}
+              className="glass rounded-3xl border border-white/10 p-5"
+            >
               <p className="text-sm text-slate-400">{card.label}</p>
               <p className="mt-3 text-3xl font-semibold">
                 {stats[card.key] ?? "—"}

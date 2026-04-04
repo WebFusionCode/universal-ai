@@ -68,9 +68,7 @@ export default function AdversarialTesting() {
             {loading ? "Running..." : "Run Adversarial Test"}
           </button>
 
-          {error ? (
-            <p className="mt-4 text-sm text-red-300">{error}</p>
-          ) : null}
+          {error ? <p className="mt-4 text-sm text-red-300">{error}</p> : null}
         </section>
 
         {result ? (
@@ -81,7 +79,8 @@ export default function AdversarialTesting() {
               Rows affected: {result.rows}
             </p>
             <p className="mt-2 text-sm text-slate-400">
-              Numeric columns: {(result.numeric_columns || []).join(", ") || "None"}
+              Numeric columns:{" "}
+              {(result.numeric_columns || []).join(", ") || "None"}
             </p>
 
             {result.preview?.length ? (
@@ -90,7 +89,10 @@ export default function AdversarialTesting() {
                   <thead className="bg-black/30">
                     <tr>
                       {Object.keys(result.preview[0]).map((column) => (
-                        <th key={column} className="px-4 py-3 text-left font-medium">
+                        <th
+                          key={column}
+                          className="px-4 py-3 text-left font-medium"
+                        >
                           {column}
                         </th>
                       ))}
@@ -100,7 +102,10 @@ export default function AdversarialTesting() {
                     {result.preview.map((row, index) => (
                       <tr key={index}>
                         {Object.values(row).map((value, valueIndex) => (
-                          <td key={valueIndex} className="px-4 py-3 text-slate-300">
+                          <td
+                            key={valueIndex}
+                            className="px-4 py-3 text-slate-300"
+                          >
                             {String(value)}
                           </td>
                         ))}

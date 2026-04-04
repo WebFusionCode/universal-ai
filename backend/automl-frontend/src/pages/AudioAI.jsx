@@ -56,9 +56,7 @@ export default function AudioAI() {
             {loading ? "Generating..." : "Generate Speech"}
           </button>
 
-          {error ? (
-            <p className="mt-4 text-sm text-red-300">{error}</p>
-          ) : null}
+          {error ? <p className="mt-4 text-sm text-red-300">{error}</p> : null}
 
           {audioUrl ? (
             <div className="mt-6 rounded-2xl border border-cyan-400/20 bg-black/30 p-4">

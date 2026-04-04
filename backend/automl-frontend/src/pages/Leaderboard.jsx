@@ -94,7 +94,9 @@ export default function Leaderboard() {
       } catch (err) {
         if (isMounted) {
           setError(
-            err.response?.data?.error || err.message || "Unable to load leaderboard",
+            err.response?.data?.error ||
+              err.message ||
+              "Unable to load leaderboard",
           );
         }
       } finally {
@@ -173,7 +175,9 @@ export default function Leaderboard() {
 
               <div className="glass rounded-2xl border border-cyan-400/20 p-5">
                 <p className="text-sm text-gray-400">Model File</p>
-                <p className="mt-2 text-lg font-semibold">{data.model_version}</p>
+                <p className="mt-2 text-lg font-semibold">
+                  {data.model_version}
+                </p>
                 <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500">
                   Ready for download
                 </p>
@@ -188,7 +192,11 @@ export default function Leaderboard() {
                       <XAxis dataKey="model" />
                       <YAxis />
                       <Tooltip />
-                      <Bar dataKey="score" fill="#22d3ee" radius={[8, 8, 0, 0]} />
+                      <Bar
+                        dataKey="score"
+                        fill="#22d3ee"
+                        radius={[8, 8, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

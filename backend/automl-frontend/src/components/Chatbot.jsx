@@ -4,7 +4,10 @@ import API from "../services/api";
 export default function Chatbot() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { sender: "ai", text: "Hi. I am your AI assistant for datasets, models, and training issues." },
+    {
+      sender: "ai",
+      text: "Hi. I am your AI assistant for datasets, models, and training issues.",
+    },
   ]);
   const [datasetInfo, setDatasetInfo] = useState(null);
   const [input, setInput] = useState("");

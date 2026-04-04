@@ -51,7 +51,9 @@ export default function Experiments() {
       } catch (err) {
         if (isMounted) {
           setError(
-            err.response?.data?.error || err.message || "Unable to load experiments",
+            err.response?.data?.error ||
+              err.message ||
+              "Unable to load experiments",
           );
         }
       } finally {
@@ -86,7 +88,8 @@ export default function Experiments() {
     .map((experiment, index) => ({
       run: `Run ${index + 1}`,
       score:
-        typeof experiment.score === "number" && Number.isFinite(experiment.score)
+        typeof experiment.score === "number" &&
+        Number.isFinite(experiment.score)
           ? experiment.score
           : null,
       model: experiment.best_model || experiment.model_name || "N/A",
@@ -127,7 +130,9 @@ export default function Experiments() {
             <div className="grid gap-4 md:grid-cols-3">
               <div className="glass glow rounded-2xl p-5">
                 <p className="text-sm text-slate-400">Total Runs</p>
-                <p className="mt-2 text-3xl font-semibold">{experiments.length}</p>
+                <p className="mt-2 text-3xl font-semibold">
+                  {experiments.length}
+                </p>
               </div>
 
               <div className="glass rounded-2xl p-5">
@@ -148,7 +153,9 @@ export default function Experiments() {
                   {latestRun?.best_model || "No runs yet"}
                 </p>
                 {latestRun?.time && (
-                  <p className="mt-2 text-sm text-slate-400">{latestRun.time}</p>
+                  <p className="mt-2 text-sm text-slate-400">
+                    {latestRun.time}
+                  </p>
                 )}
               </div>
             </div>
@@ -189,7 +196,11 @@ export default function Experiments() {
                         <XAxis dataKey="model" />
                         <YAxis />
                         <Tooltip />
-                        <Bar dataKey="score" fill="#06b6d4" radius={[8, 8, 0, 0]} />
+                        <Bar
+                          dataKey="score"
+                          fill="#06b6d4"
+                          radius={[8, 8, 0, 0]}
+                        />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -207,17 +218,31 @@ export default function Experiments() {
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div>
                         <p className="text-sm text-slate-400">
-                          {experiment.time || experiment.timestamp || "Unknown time"}
+                          {experiment.time ||
+                            experiment.timestamp ||
+                            "Unknown time"}
                         </p>
                         <p className="mt-2 text-xl font-semibold">
-                          {experiment.best_model || experiment.model_name || "N/A"}
+                          {experiment.best_model ||
+                            experiment.model_name ||
+                            "N/A"}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2 text-xs uppercase tracking-[0.2em] text-cyan-300">
                           {experiment.dataset_type && (
-                            <span>{String(experiment.dataset_type).replaceAll("_", " ")}</span>
+                            <span>
+                              {String(experiment.dataset_type).replaceAll(
+                                "_",
+                                " ",
+                              )}
+                            </span>
                           )}
                           {experiment.problem_type && (
-                            <span>{String(experiment.problem_type).replaceAll("_", " ")}</span>
+                            <span>
+                              {String(experiment.problem_type).replaceAll(
+                                "_",
+                                " ",
+                              )}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -259,7 +284,9 @@ export default function Experiments() {
                           Models Tested
                         </p>
                         <p className="mt-2 text-lg font-medium">
-                          {experiment.total_models || experiment.leaderboard?.length || 0}
+                          {experiment.total_models ||
+                            experiment.leaderboard?.length ||
+                            0}
                         </p>
                       </div>
 

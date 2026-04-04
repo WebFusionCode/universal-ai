@@ -62,11 +62,13 @@ export default function Dashboard() {
         const leaderboard = leaderboardRes?.data || {};
         const models = leaderboard.models || [];
         const scoredModels = models.filter(
-          (item) => typeof item.score === "number" && Number.isFinite(item.score),
+          (item) =>
+            typeof item.score === "number" && Number.isFinite(item.score),
         );
 
         setStats({
-          totalRuns: experimentsRes?.data?.total_experiments || experiments.length,
+          totalRuns:
+            experimentsRes?.data?.total_experiments || experiments.length,
           bestScore:
             scoredModels[0]?.score ??
             experiments
@@ -75,7 +77,8 @@ export default function Dashboard() {
                 (item) => typeof item === "number" && Number.isFinite(item),
               ) ??
             null,
-          latestModel: latestExperiment?.best_model || leaderboard.best_model || "N/A",
+          latestModel:
+            latestExperiment?.best_model || leaderboard.best_model || "N/A",
           latestRows: latestExperiment?.rows ?? null,
         });
 
@@ -104,7 +107,8 @@ export default function Dashboard() {
                 Workspace
               </p>
               <h1 className="text-4xl font-semibold text-white">
-                Welcome back, <span className="capitalize text-cyan-300">{userLabel}</span>
+                Welcome back,{" "}
+                <span className="capitalize text-cyan-300">{userLabel}</span>
               </h1>
               <p className="max-w-2xl text-sm text-slate-300">
                 This dashboard behaves like an ML copilot hub: train models,
@@ -145,7 +149,9 @@ export default function Dashboard() {
                   className="glass rounded-3xl p-5"
                 >
                   <p className="text-sm text-slate-400">Training Runs</p>
-                  <p className="mt-3 text-3xl font-semibold">{stats.totalRuns}</p>
+                  <p className="mt-3 text-3xl font-semibold">
+                    {stats.totalRuns}
+                  </p>
                 </Motion.div>
 
                 <Motion.div
@@ -164,7 +170,9 @@ export default function Dashboard() {
                 >
                   <p className="text-sm text-slate-400">Latest Dataset Rows</p>
                   <p className="mt-3 text-3xl font-semibold">
-                    {stats.latestRows != null ? stats.latestRows.toLocaleString() : "N/A"}
+                    {stats.latestRows != null
+                      ? stats.latestRows.toLocaleString()
+                      : "N/A"}
                   </p>
                 </Motion.div>
               </div>
@@ -228,7 +236,9 @@ export default function Dashboard() {
                       <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
                         {experiment.time || "Recent run"}
                       </p>
-                      <p className="mt-2 font-medium">{experiment.best_model}</p>
+                      <p className="mt-2 font-medium">
+                        {experiment.best_model}
+                      </p>
                       <p className="mt-1 text-sm text-slate-400">
                         Score: {formatScore(experiment.score)}
                       </p>
@@ -236,7 +246,8 @@ export default function Dashboard() {
                   ))
                 ) : (
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
-                    Train a model to populate recent runs and leaderboard activity.
+                    Train a model to populate recent runs and leaderboard
+                    activity.
                   </div>
                 )}
               </div>

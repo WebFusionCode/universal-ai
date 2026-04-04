@@ -6,17 +6,20 @@ const plans = [
   {
     name: "free",
     title: "Free",
-    description: "Get started with core AutoML workflows and local experimentation.",
+    description:
+      "Get started with core AutoML workflows and local experimentation.",
   },
   {
     name: "pro",
     title: "Pro",
-    description: "Unlock advanced AI tooling and a stronger day-to-day workspace.",
+    description:
+      "Unlock advanced AI tooling and a stronger day-to-day workspace.",
   },
   {
     name: "enterprise",
     title: "Enterprise",
-    description: "Best for teams, collaboration, and production-ready AI operations.",
+    description:
+      "Best for teams, collaboration, and production-ready AI operations.",
   },
 ];
 
@@ -46,7 +49,9 @@ export default function Pricing() {
         }
       } catch (err) {
         if (isMounted) {
-          setMessage(err.response?.data?.detail || "Unable to load current plan.");
+          setMessage(
+            err.response?.data?.detail || "Unable to load current plan.",
+          );
         }
       } finally {
         if (isMounted) {
@@ -117,15 +122,15 @@ export default function Pricing() {
                 key={plan.name}
                 className={[
                   "glass rounded-3xl border p-6 transition",
-                  isCurrent
-                    ? "border-cyan-400/50"
-                    : "border-white/10",
+                  isCurrent ? "border-cyan-400/50" : "border-white/10",
                 ].join(" ")}
               >
                 <p className="text-sm uppercase tracking-[0.3em] text-slate-500">
                   {plan.title}
                 </p>
-                <p className="mt-4 text-sm text-slate-400">{plan.description}</p>
+                <p className="mt-4 text-sm text-slate-400">
+                  {plan.description}
+                </p>
 
                 <button
                   onClick={() => subscribe(plan.name)}

@@ -9,33 +9,27 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
 
 try:
-
     from xgboost import XGBClassifier, XGBRegressor
 
 except Exception:
-
     XGBClassifier = None
 
     XGBRegressor = None
 
 
 try:
-
     from lightgbm import LGBMClassifier, LGBMRegressor
 
 except Exception:
-
     LGBMClassifier = None
 
     LGBMRegressor = None
 
 
 try:
-
     from catboost import CatBoostClassifier, CatBoostRegressor
 
 except Exception:
-
     CatBoostClassifier = None
 
     CatBoostRegressor = None
@@ -60,7 +54,6 @@ REGRESSION_MODELS = {
 
 
 if XGBClassifier is not None:
-
     CLASSIFICATION_MODELS["XGBoost"] = XGBClassifier(
         n_estimators=300,
         learning_rate=0.05,
@@ -73,21 +66,18 @@ if XGBClassifier is not None:
 
 
 if LGBMClassifier is not None:
-
     CLASSIFICATION_MODELS["LightGBM"] = LGBMClassifier(
         n_estimators=300, learning_rate=0.05
     )
 
 
 if CatBoostClassifier is not None:
-
     CLASSIFICATION_MODELS["CatBoost"] = CatBoostClassifier(
         iterations=300, learning_rate=0.05, depth=6, verbose=0
     )
 
 
 if XGBRegressor is not None:
-
     REGRESSION_MODELS["XGBoost"] = XGBRegressor(
         n_estimators=300,
         learning_rate=0.05,
@@ -98,12 +88,10 @@ if XGBRegressor is not None:
 
 
 if LGBMRegressor is not None:
-
     REGRESSION_MODELS["LightGBM"] = LGBMRegressor(n_estimators=300, learning_rate=0.05)
 
 
 if CatBoostRegressor is not None:
-
     REGRESSION_MODELS["CatBoost"] = CatBoostRegressor(
         iterations=300, learning_rate=0.05, depth=6, verbose=0
     )

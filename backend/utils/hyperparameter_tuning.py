@@ -20,7 +20,6 @@ def tune_random_forest(X, y, problem_type):
         min_samples_split = trial.suggest_int("min_samples_split", 2, 10)
 
         if problem_type == "classification":
-
             model = RandomForestClassifier(
                 n_estimators=n_estimators,
                 max_depth=max_depth,
@@ -30,7 +29,6 @@ def tune_random_forest(X, y, problem_type):
             score = cross_val_score(model, X, y, cv=3, scoring="accuracy").mean()
 
         else:
-
             model = RandomForestRegressor(
                 n_estimators=n_estimators,
                 max_depth=max_depth,

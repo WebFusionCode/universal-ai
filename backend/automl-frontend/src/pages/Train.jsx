@@ -120,7 +120,10 @@ export default function Train() {
       });
 
       const nextColumns = res.data.columns || [];
-      const nextDatasetType = resolveDatasetType(res.data, datasetType || "tabular");
+      const nextDatasetType = resolveDatasetType(
+        res.data,
+        datasetType || "tabular",
+      );
 
       setDatasetType(nextDatasetType);
       setColumns(nextColumns);
@@ -270,7 +273,8 @@ export default function Train() {
 
               {file && (
                 <p className="mt-3 text-sm text-slate-400">
-                  Selected file: <span className="text-slate-200">{file.name}</span>
+                  Selected file:{" "}
+                  <span className="text-slate-200">{file.name}</span>
                 </p>
               )}
 
@@ -287,7 +291,8 @@ export default function Train() {
                 </p>
               )}
 
-              {(activeDatasetType === "audio" || activeDatasetType === "video") && (
+              {(activeDatasetType === "audio" ||
+                activeDatasetType === "video") && (
                 <p className="mt-4 text-sm text-slate-400">
                   {formatDatasetType(activeDatasetType)} support is planned, but
                   training is not connected yet.
@@ -367,7 +372,10 @@ export default function Train() {
                       {previewRows.map((row, index) => (
                         <tr key={index} className="border-t border-white/10">
                           {columns.map((column) => (
-                            <td key={`${index}-${column}`} className="p-3 text-slate-400">
+                            <td
+                              key={`${index}-${column}`}
+                              className="p-3 text-slate-400"
+                            >
                               {String(row[column] ?? "")}
                             </td>
                           ))}
@@ -434,7 +442,9 @@ export default function Train() {
                         </div>
 
                         <span className="text-cyan-300">
-                          {item.score != null ? Number(item.score).toFixed(4) : "Ready"}
+                          {item.score != null
+                            ? Number(item.score).toFixed(4)
+                            : "Ready"}
                         </span>
                       </div>
                     ))}
@@ -451,14 +461,16 @@ export default function Train() {
                       Model Code Preview
                     </h2>
                     <p className="mt-2 text-sm text-slate-400">
-                      Review the generated pipeline code and download it when you
-                      are ready.
+                      Review the generated pipeline code and download it when
+                      you are ready.
                     </p>
                   </div>
 
                   <div className="flex gap-2">
                     <button
-                      onClick={() => navigator.clipboard.writeText(result.generated_code)}
+                      onClick={() =>
+                        navigator.clipboard.writeText(result.generated_code)
+                      }
                       className="rounded-2xl border border-white/10 px-4 py-2 text-sm transition hover:border-cyan-400"
                     >
                       Copy
@@ -529,7 +541,9 @@ export default function Train() {
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-sm text-slate-500">Feature Engineering</p>
+                    <p className="text-sm text-slate-500">
+                      Feature Engineering
+                    </p>
                     <div className="mt-3 space-y-2">
                       {aiInsights.feature_engineering?.map((item, index) => (
                         <p key={index}>{item}</p>

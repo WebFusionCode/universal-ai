@@ -26,7 +26,6 @@ numeric_cols = X.select_dtypes(include=["int64", "float64"]).columns
 
 
 if len(numeric_cols) > 0:
-
     X[numeric_cols] = SimpleImputer(strategy="mean").fit_transform(X[numeric_cols])
 
     X[numeric_cols] = StandardScaler().fit_transform(X[numeric_cols])
@@ -36,7 +35,6 @@ categorical_cols = X.select_dtypes(include=["object"]).columns
 
 
 for col in categorical_cols:
-
     X[col] = X[col].astype(str)
 
     X[col] = LabelEncoder().fit_transform(X[col])

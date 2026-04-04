@@ -12,7 +12,9 @@ export default function VideoAI() {
       const res = await API.post("/video-ai");
       setMessage(res.data.message || "Video pipeline is not ready yet.");
     } catch (err) {
-      setMessage(err.response?.data?.detail || "Unable to reach video pipeline.");
+      setMessage(
+        err.response?.data?.detail || "Unable to reach video pipeline.",
+      );
     } finally {
       setLoading(false);
     }
@@ -41,7 +43,8 @@ export default function VideoAI() {
           </button>
 
           <p className="mt-4 text-slate-300">
-            {message || "Video AI is scaffolded and ready for the next backend stage."}
+            {message ||
+              "Video AI is scaffolded and ready for the next backend stage."}
           </p>
         </section>
       </main>

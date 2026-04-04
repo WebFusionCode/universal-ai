@@ -16,19 +16,20 @@ import zipfile
 try:
     from dotenv import load_dotenv
 except Exception:
+
     def load_dotenv(*args, **kwargs):
         return False
+
+
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 import joblib
 from jose import JWTError, jwt
 import numpy as np
 import pandas as pd
-from passlib.context import CryptContext
+
 try:
     from pymongo.errors import PyMongoError
 except Exception:
@@ -41,16 +42,19 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
-# Pydantic Models
+
+                 
 class UserSignup(BaseModel):
     email: EmailStr
     password: str
+
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
-# MongoDB Connection
+
+                    
 from pymongo import MongoClient
 
 MONGO_URL = os.getenv("MONGO_URL")
@@ -73,12 +77,22 @@ print("🚀 Starting FastAPI app...")
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 import os
+
 print("MONGO_URL:", os.getenv("MONGO_URL"))
 
 app = FastAPI()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],                     
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 print("✅ App created")
 
-# MongoDB Connection
+                    
 from pymongo import MongoClient
 
 MONGO_URL = os.getenv("MONGO_URL")
@@ -148,7 +162,9 @@ def detect_training_problem_type(df, target_column):
     return detect_problem_type(df, target_column)
 
 
-def generate_training_pipeline_code(model_name, feature_columns, problem_type, target_column):
+def generate_training_pipeline_code(
+    model_name, feature_columns, problem_type, target_column
+):
     from utils.code_generator import generate_training_code
 
     return generate_training_code(
@@ -378,6 +394,7 @@ def require_admin_user(request: Request):
 
     return user_id
 
+
 def update_progress(progress=None, status=None, log=None, eta=None):
     if progress is not None:
         training_progress["progress"] = progress
@@ -388,7 +405,7 @@ def update_progress(progress=None, status=None, log=None, eta=None):
     if log is not None:
         training_progress["logs"].append(log)
 
-        # keep last 20 logs only
+                                
         training_progress["logs"] = training_progress["logs"][-20:]
 
     if eta is not None:
@@ -529,14 +546,9 @@ def append_experiment_log(
     return experiment
 
 
-
-
-
-
-
-# =====================================================
-# PREVIEW
-# =====================================================
+                                                       
+         
+                                                       
 @app.post("/preview")
 async def preview_dataset(file: UploadFile = File(...)):
     filename = file.filename if file.filename is not None else "unknown"
@@ -555,35 +567,39 @@ async def preview_dataset(file: UploadFile = File(...)):
 
     df.columns = df.columns.str.strip()
 
-    # Basic Info
+                
     rows = len(df)
     columns = list(df.columns)
 
-    # Detect numeric & categorical
-    numeric_cols = df.select_dtypes(include=["int64","float64"]).columns.tolist()
+                                  
+    numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
     categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
 
-    # Detect possible date column
+                                 
     date_column = None
 
     for col in categorical_cols:
-
-    # Skip numeric columns
+                              
         if pd.api.types.is_numeric_dtype(df[col]):
             continue
 
         try:
-        # Try converting column to datetime
-            converted = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
+                                               
+            converted = pd.to_datetime(
+                df[col], errors="coerce", infer_datetime_format=True
+            )
 
             valid_ratio = converted.notna().sum() / max(len(df), 1)
             unique_ratio = converted.nunique() / max(len(df), 1)
 
-        # Safe time-series detection
+                                        
             if (
-                valid_ratio > 0.8 and
-                unique_ratio > 0.5 and
-                any(keyword in col.lower() for keyword in ["date", "time", "year", "month"])
+                valid_ratio > 0.8
+                and unique_ratio > 0.5
+                and any(
+                    keyword in col.lower()
+                    for keyword in ["date", "time", "year", "month"]
+                )
             ):
                 date_column = col
                 df[col] = converted
@@ -615,31 +631,25 @@ async def preview_dataset(file: UploadFile = File(...)):
     }
 
 
-
-
-
-
-
-
-
-
-# =====================================================
-# GENETIC EVOLUTION ENGINE
-# =====================================================
-def genetic_evolution(X_train, X_test, y_train, y_test, problem_type, generations=5, population_size=6):
+                                                       
+                          
+                                                       
+def genetic_evolution(
+    X_train, X_test, y_train, y_test, problem_type, generations=5, population_size=6
+):
 
     def create_individual():
         if problem_type == "classification":
             return RandomForestClassifier(
                 n_estimators=random.randint(50, 300),
                 max_depth=random.choice([None, 5, 10, 20]),
-                min_samples_split=random.randint(2, 10)
+                min_samples_split=random.randint(2, 10),
             )
         else:
             return RandomForestRegressor(
                 n_estimators=random.randint(50, 300),
                 max_depth=random.choice([None, 5, 10, 20]),
-                min_samples_split=random.randint(2, 10)
+                min_samples_split=random.randint(2, 10),
             )
 
     def fitness(model):
@@ -657,7 +667,6 @@ def genetic_evolution(X_train, X_test, y_train, y_test, problem_type, generation
     best_score = float("-inf")
 
     for generation in range(generations):
-
         scored_population = []
 
         for model in population:
@@ -668,15 +677,15 @@ def genetic_evolution(X_train, X_test, y_train, y_test, problem_type, generation
                 best_score = score
                 best_model = model
 
-        # Select top 50%
+                        
         scored_population.sort(key=lambda x: x[0], reverse=True)
-        survivors = [model for _, model in scored_population[:population_size // 2]]
+        survivors = [model for _, model in scored_population[: population_size // 2]]
 
-        # Mutation
+                  
         new_population = survivors.copy()
 
         while len(new_population) < population_size:
-            child = create_individual()  # fresh mutation
+            child = create_individual()                  
             new_population.append(child)
 
         population = new_population
@@ -684,17 +693,9 @@ def genetic_evolution(X_train, X_test, y_train, y_test, problem_type, generation
     return best_model, best_score
 
 
-
-
-
-
-
-
-
-
-# =====================================================
-# SAFE TIME SERIES DETECTION
-# =====================================================
+                                                       
+                            
+                                                       
 def detect_time_series(df, target_column):
     for col in df.columns:
         if col == target_column:
@@ -758,9 +759,7 @@ def auto_ml_recommendation(df, target_column):
 
             if LIGHTWEIGHT_DEPLOYMENT:
                 recommended_models = ["LogisticRegression", "RandomForest"]
-                best_model_hint = (
-                    "RandomForest is a safer lightweight deployment choice for tabular classification."
-                )
+                best_model_hint = "RandomForest is a safer lightweight deployment choice for tabular classification."
         else:
             problem_type = "Regression"
             recommended_models = [
@@ -782,9 +781,7 @@ def auto_ml_recommendation(df, target_column):
                     "LinearRegression",
                     "RandomForestRegressor",
                 ]
-                best_model_hint = (
-                    "RandomForestRegressor is a safer lightweight deployment choice for tabular regression."
-                )
+                best_model_hint = "RandomForestRegressor is a safer lightweight deployment choice for tabular regression."
 
     missing = int(df.isnull().sum().sum())
     issues = []
@@ -819,19 +816,8 @@ def auto_ml_recommendation(df, target_column):
     return recommendations
 
 
-
-
-
-
-
-
-
-
-
-
-
 def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_type):
-    
+
     start = datetime.now()
 
     try:
@@ -865,12 +851,9 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
             acc = accuracy_score(y_test, preds)
 
             score = acc
-            metrics = {
-                "accuracy": acc
-            }
+            metrics = {"accuracy": acc}
 
         else:
-            
             params = auto_tune_model(name, model, X_train, y_train, problem_type)
 
             if params:
@@ -887,11 +870,8 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
                 mse = mean_squared_error(y_test, preds)
 
                 score = r2
-                metrics = {
-                    "r2": r2,
-                    "mse": mse
-                }     
-                  
+                metrics = {"r2": r2, "mse": mse}
+
                 if np.isnan(score):
                     score = -999
 
@@ -903,21 +883,11 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
             "score": float(score),
             "trained_model": model,
             "time": duration,
-            "metrics": metrics
+            "metrics": metrics,
         }
 
     except Exception as e:
-        return {
-            "model": name,
-            "score": -999,
-            "error": str(e),
-            "trained_model": None
-        }
-
-
-
-
-
+        return {"model": name, "score": -999, "error": str(e), "trained_model": None}
 
 
 def filter_models(models, X, y, problem_type):
@@ -928,77 +898,77 @@ def filter_models(models, X, y, problem_type):
     num_cols = X.shape[1]
 
     for name, model in models.items():
-
-        # 🚫 Skip SVM for large datasets
+                                       
         if "SVM" in name and num_rows > 20000:
             continue
 
-        # 🚫 Skip KNN for high dimensional data
+                                              
         if "KNN" in name and num_cols > 50:
             continue
 
-        # 🚫 Skip LogisticRegression for too complex data
+                                                        
         if "LogisticRegression" in name and num_cols > 100:
             continue
 
-        # 🚫 Skip LinearRegression if classification
+                                                   
         if problem_type == "classification" and "LinearRegression" in name:
             continue
 
-        # 🚫 Skip SVR if dataset is huge
+                                       
         if "SVR" in name and num_rows > 15000:
             continue
 
-        # ✅ Keep model
+                      
         selected_models[name] = model
 
     return selected_models
 
 
-
-
-
-
-
-
-
-
-
-
-
-# =====================================================
-# AI INSIGHTS ENGINE (SMART ANALYSIS)
-# =====================================================
+                                                       
+                                     
+                                                       
 def generate_ai_insights(df, problem_type, best_model_name, best_score):
 
     insights = []
 
-    # Dataset size insight
+                          
     if len(df) < 500:
-        insights.append("Dataset is small. Consider adding more data for better performance.")
+        insights.append(
+            "Dataset is small. Consider adding more data for better performance."
+        )
     elif len(df) > 50000:
         if LIGHTWEIGHT_DEPLOYMENT:
-            insights.append("Large dataset detected. Use sampling or simpler models in lightweight deployment.")
+            insights.append(
+                "Large dataset detected. Use sampling or simpler models in lightweight deployment."
+            )
         else:
-            insights.append("Large dataset detected. Consider using deep learning models.")
+            insights.append(
+                "Large dataset detected. Consider using deep learning models."
+            )
 
-    # Feature insight
+                     
     if df.shape[1] > 50:
-        insights.append("High number of features. Feature selection may improve performance.")
+        insights.append(
+            "High number of features. Feature selection may improve performance."
+        )
 
-    # Missing values
+                    
     missing_ratio = df.isna().sum().sum() / (df.shape[0] * df.shape[1])
     if missing_ratio > 0.2:
         insights.append("High missing values detected. Data cleaning is recommended.")
 
-    # Model performance
+                       
     if problem_type == "classification":
         if best_score > 0.9:
             insights.append(f"{best_model_name} is performing excellently.")
         elif best_score > 0.75:
-            insights.append(f"{best_model_name} is performing well, but tuning may improve results.")
+            insights.append(
+                f"{best_model_name} is performing well, but tuning may improve results."
+            )
         else:
-            insights.append("Model performance is low. Try feature engineering or more data.")
+            insights.append(
+                "Model performance is low. Try feature engineering or more data."
+            )
 
     else:
         if best_score > 0.85:
@@ -1006,64 +976,49 @@ def generate_ai_insights(df, problem_type, best_model_name, best_score):
         elif best_score > 0.6:
             insights.append("Model is moderate. Consider tuning or better features.")
         else:
-            insights.append("Poor regression performance. Try different models or transformations.")
+            insights.append(
+                "Poor regression performance. Try different models or transformations."
+            )
 
-    # General suggestion
+                        
     insights.append("Try ensemble models for better accuracy.")
     insights.append("Hyperparameter tuning can further improve performance.")
 
     return insights
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-# =====================================================
-# AUTO HYPERPARAMETER TUNING
-# =====================================================
+                                                       
+                            
+                                                       
 def auto_tune_model(name, model, X_train, y_train, problem_type):
 
     try:
-
-        # RANDOM FOREST
+                       
         if "RandomForest" in name:
             tune_random_forest = get_tune_random_forest()
             return tune_random_forest(X_train, y_train, problem_type)
 
-        # LOGISTIC REGRESSION
+                             
         if "LogisticRegression" in name:
             return {
                 "C": random.choice([0.1, 1, 10]),
-                "max_iter": random.choice([100, 200])
+                "max_iter": random.choice([100, 200]),
             }
 
-        # SVM
+             
         if "SVM" in name:
             return {
                 "C": random.choice([0.1, 1, 10]),
-                "kernel": random.choice(["linear", "rbf"])
+                "kernel": random.choice(["linear", "rbf"]),
             }
 
-        # KNN
+             
         if "KNN" in name:
-            return {
-                "n_neighbors": random.choice([3,5,7,9])
-            }
+            return {"n_neighbors": random.choice([3, 5, 7, 9])}
 
-        # SVR
+             
         if "SVR" in name:
-            return {
-                "C": random.choice([0.1, 1, 10])
-            }
+            return {"C": random.choice([0.1, 1, 10])}
 
         return {}
 
@@ -1071,21 +1026,9 @@ def auto_tune_model(name, model, X_train, y_train, problem_type):
         return {}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-# =====================================================
-# GENETIC ALGORITHM FOR TABULAR
-# =====================================================
+                                                       
+                               
+                                                       
 def genetic_model_search(X_train, X_test, y_train, y_test, problem_type):
     classification_models, regression_models = get_model_library()
 
@@ -1100,7 +1043,6 @@ def genetic_model_search(X_train, X_test, y_train, y_test, problem_type):
     top_models = []
 
     for name, model in models.items():
-        
         if "RandomForest" in name:
             tune_random_forest = get_tune_random_forest()
             best_params = tune_random_forest(X_train, y_train, problem_type)
@@ -1110,28 +1052,21 @@ def genetic_model_search(X_train, X_test, y_train, y_test, problem_type):
         model.fit(X_train, y_train)
 
         if problem_type == "classification":
-
             preds = model.predict(X_test)
             acc = accuracy_score(y_test, preds)
 
-            metrics = {
-                "accuracy": acc
-            }
+            metrics = {"accuracy": acc}
 
             score = acc
             better = best_score is None or score > best_score
 
         else:
-
             preds = model.predict(X_test)
 
             mse = mean_squared_error(y_test, preds)
             r2 = r2_score(y_test, preds)
 
-            metrics = {
-                "mse": mse,
-                "r2": r2
-            }
+            metrics = {"mse": mse, "r2": r2}
 
             score = r2
             better = best_score is None or score > best_score
@@ -1141,28 +1076,19 @@ def genetic_model_search(X_train, X_test, y_train, y_test, problem_type):
             best_model = model
             best_metrics = metrics
 
-        model_info = {
-            "model": name,
-            **{k: round(v, 4) for k, v in metrics.items()}
-        }
+        model_info = {"model": name, **{k: round(v, 4) for k, v in metrics.items()}}
 
         top_models.append(model_info)
 
     return best_model, best_metrics, top_models
 
 
-
-
-
-
-
-# =====================================================
-# model_strength_summary
-# =====================================================
+                                                       
+                        
+                                                       
 def model_strength_summary(problem_type, metrics):
 
     if problem_type == "classification":
-
         acc = metrics["accuracy"]
 
         if acc > 0.9:
@@ -1174,13 +1100,9 @@ def model_strength_summary(problem_type, metrics):
         else:
             level = "Weak"
 
-        return {
-            "model_strength": level,
-            "accuracy": round(acc,4)
-        }
+        return {"model_strength": level, "accuracy": round(acc, 4)}
 
     else:
-
         r2 = metrics["r2"]
 
         if r2 > 0.9:
@@ -1192,27 +1114,15 @@ def model_strength_summary(problem_type, metrics):
         else:
             level = "Weak"
 
-        return {
-            "model_strength": level,
-            "r2_score": round(r2,4)
-        }
-        
-        
-        
-        
+        return {"model_strength": level, "r2_score": round(r2, 4)}
 
 
-
-
-
-        
-# =====================================================
-# generate_explanation_text 
-# =====================================================
+                                                       
+                           
+                                                       
 def generate_explanation_text(problem_type, strength_summary):
 
     if problem_type == "classification":
-
         return (
             f"This classification model demonstrates {strength_summary['model_strength']} "
             f"performance with an accuracy of {strength_summary['accuracy']}. "
@@ -1220,7 +1130,6 @@ def generate_explanation_text(problem_type, strength_summary):
         )
 
     else:
-
         return (
             f"This regression model demonstrates {strength_summary['model_strength']} "
             f"performance with an R² score of {strength_summary['r2_score']}. "
@@ -1228,17 +1137,9 @@ def generate_explanation_text(problem_type, strength_summary):
         )
 
 
-
-       
-        
-        
-        
-        
-                
-        
-# =====================================================
-# CNN MODEL
-# =====================================================
+                                                       
+           
+                                                       
 def build_simple_cnn(num_classes):
     torch_runtime = get_torch_runtime()
     nn = torch_runtime["nn"]
@@ -1265,7 +1166,7 @@ def build_simple_cnn(num_classes):
             return self.model(x)
 
     return SimpleCNN(num_classes)
-    
+
 
 def generate_gradcam(model, image_tensor, target_class):
     torch = get_torch_runtime()["torch"]
@@ -1280,7 +1181,7 @@ def generate_gradcam(model, image_tensor, target_class):
     def backward_hook(module, grad_in, grad_out):
         gradients.append(grad_out[0])
 
-    # 🔥 Hook last convolution block of ResNet18
+                                               
     target_layer = model.model.layer4[-1]
 
     handle_forward = target_layer.register_forward_hook(forward_hook)
@@ -1295,14 +1196,14 @@ def generate_gradcam(model, image_tensor, target_class):
     grad = gradients[0]
     act = activations[0]
 
-    weights = torch.mean(grad, dim=(2,3), keepdim=True)
+    weights = torch.mean(grad, dim=(2, 3), keepdim=True)
     cam = torch.sum(weights * act, dim=1).squeeze()
 
     cam = torch.relu(cam)
     cam -= cam.min()
     if cam.max() != 0:
         cam /= cam.max()
-        
+
     cam = cam.detach().cpu().numpy()
 
     handle_forward.remove()
@@ -1311,22 +1212,14 @@ def generate_gradcam(model, image_tensor, target_class):
     return cam
 
 
-
-
-
-
-
-
-
-
-# =====================================================
-# IMAGE AUTO ORGANIZER
-# =====================================================
+                                                       
+                      
+                                                       
 def universal_image_organizer(root_folder):
 
     normalized_folder = os.path.join(root_folder, "__normalized__")
 
-    # Remove old normalized folder if exists
+                                            
     if os.path.exists(normalized_folder):
         shutil.rmtree(normalized_folder)
 
@@ -1335,17 +1228,15 @@ def universal_image_organizer(root_folder):
     image_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".gif")
 
     for current_root, dirs, files in os.walk(root_folder):
-
-        # Skip normalized folder itself
+                                       
         if "__normalized__" in current_root:
             continue
 
         for file in files:
             if (file or "").lower().endswith(image_extensions):
-
                 full_path = os.path.join(current_root, file)
 
-                # Determine class name from parent folder
+                                                         
                 relative_path = os.path.relpath(current_root, root_folder)
                 parts = relative_path.split(os.sep)
 
@@ -1361,11 +1252,11 @@ def universal_image_organizer(root_folder):
 
                 destination = os.path.join(target_class_folder, file)
 
-                # 🔥 Prevent SameFileError
+                                         
                 if os.path.abspath(full_path) != os.path.abspath(destination):
                     shutil.copy2(full_path, destination)
 
-    # Remove everything except normalized folder
+                                                
     for item in os.listdir(root_folder):
         if item == "__normalized__":
             continue
@@ -1376,27 +1267,19 @@ def universal_image_organizer(root_folder):
         else:
             os.remove(item_path)
 
-    # Move normalized data up
+                             
     for class_name in os.listdir(normalized_folder):
         shutil.move(
             os.path.join(normalized_folder, class_name),
-            os.path.join(root_folder, class_name)
+            os.path.join(root_folder, class_name),
         )
 
     shutil.rmtree(normalized_folder)
 
 
-
-
-
-
-
-
-
-
-# =====================================================
-# PREVIEW COLUMNS ENDPOINT
-# =====================================================
+                                                       
+                          
+                                                       
 @app.post("/preview-columns")
 async def preview_columns(file: UploadFile = File(...)):
     filename = file.filename if file.filename is not None else "unknown"
@@ -1413,17 +1296,12 @@ async def preview_columns(file: UploadFile = File(...)):
     else:
         return {"error": "Unsupported format"}
 
-    return {
-        "columns": list(df.columns),
-        "preview": df.head().to_dict(orient="records")
-    }
+    return {"columns": list(df.columns), "preview": df.head().to_dict(orient="records")}
 
 
-
-
-# =====================================================
-# dataset_quality_score
-# =====================================================
+                                                       
+                       
+                                                       
 def dataset_quality_score(df):
 
     total_cells = df.shape[0] * df.shape[1]
@@ -1431,40 +1309,31 @@ def dataset_quality_score(df):
 
     missing_ratio = missing_cells / total_cells
 
-    numeric_ratio = (
-        len(df.select_dtypes(include=["int64","float64"]).columns)
-        / max(1, len(df.columns))
+    numeric_ratio = len(df.select_dtypes(include=["int64", "float64"]).columns) / max(
+        1, len(df.columns)
     )
 
     score = 100
 
-    # Penalize missing values
+                             
     score -= missing_ratio * 40
 
-    # Penalize very small datasets
+                                  
     if len(df) < 100:
         score -= 20
     elif len(df) < 500:
         score -= 10
 
-    # Encourage numeric richness
+                                
     score += numeric_ratio * 10
 
-    score = max(0, min(100, round(score,2)))
+    score = max(0, min(100, round(score, 2)))
 
     return {
         "quality_score": score,
-        "missing_ratio": round(missing_ratio,4),
-        "numeric_feature_ratio": round(numeric_ratio,4)
+        "missing_ratio": round(missing_ratio, 4),
+        "numeric_feature_ratio": round(numeric_ratio, 4),
     }
-    
-    
-    
-
-
-
-
-
 
 
 @app.post("/signup")
@@ -1473,27 +1342,29 @@ async def signup(user: UserSignup):
         if users_collection is None:
             return {"error": "Database not connected"}
 
-        # check existing
+                        
         existing = users_collection.find_one({"email": user.email})
 
         if existing:
             return {"error": "User already exists"}
 
-        # insert
+                
         hashed = pwd_context.hash(user.password)
         user_id = str(uuid.uuid4())
 
-        users_collection.insert_one({
-            "user_id": user_id,
-            "email": user.email,
-            "password": hashed,
-            "role": "user",
-            "name": "",
-            "phone": "",
-            "dob": "",
-            "profile_pic": "",
-            "created_at": datetime.utcnow().isoformat(),
-        })
+        users_collection.insert_one(
+            {
+                "user_id": user_id,
+                "email": user.email,
+                "password": hashed,
+                "role": "user",
+                "name": "",
+                "phone": "",
+                "dob": "",
+                "profile_pic": "",
+                "created_at": datetime.utcnow().isoformat(),
+            }
+        )
 
         track_usage_event(user_id, "signup", {"email": user.email})
 
@@ -1502,10 +1373,6 @@ async def signup(user: UserSignup):
     except Exception as e:
         print("❌ SIGNUP ERROR:", e)
         return {"error": str(e)}
-
-
-
-
 
 
 @app.post("/login")
@@ -1523,7 +1390,10 @@ async def login(user: UserLogin):
             return {"error": "Invalid password"}
 
         token = jwt.encode(
-            {"sub": existing["user_id"], "exp": datetime.utcnow() + timedelta(hours=10)},
+            {
+                "sub": existing["user_id"],
+                "exp": datetime.utcnow() + timedelta(hours=10),
+            },
             SECRET_KEY,
             algorithm=ALGORITHM,
         )
@@ -1563,7 +1433,9 @@ async def update_profile(data: dict, request: Request):
     if users_collection is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
-    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
+    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(
+        request
+    )
 
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
@@ -1590,7 +1462,9 @@ async def update_profile(data: dict, request: Request):
 
 @app.post("/subscribe")
 async def subscribe(data: dict, request: Request):
-    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
+    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(
+        request
+    )
     plan = (data.get("plan") or "free").strip().lower()
 
     if not user_id:
@@ -1616,7 +1490,9 @@ async def subscribe(data: dict, request: Request):
 @app.get("/get-plan/{user_id}")
 async def get_plan(user_id: str):
     try:
-        subscription = subscriptions_collection.find_one({"user_id": user_id}, {"_id": 0})
+        subscription = subscriptions_collection.find_one(
+            {"user_id": user_id}, {"_id": 0}
+        )
     except PyMongoError as exc:
         raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
 
@@ -1628,7 +1504,9 @@ async def get_plan(user_id: str):
 
 @app.post("/create-team")
 async def create_team(data: dict, request: Request):
-    owner_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
+    owner_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(
+        request
+    )
 
     if not owner_id:
         raise HTTPException(status_code=400, detail="user_id is required")
@@ -1656,7 +1534,9 @@ async def create_team(data: dict, request: Request):
 
 @app.post("/invite")
 async def invite(data: dict, request: Request):
-    requester_id = extract_user_id_from_request(request) or (data.get("owner_id") or "").strip()
+    requester_id = (
+        extract_user_id_from_request(request) or (data.get("owner_id") or "").strip()
+    )
     team_id = (data.get("team_id") or "").strip()
     member_id = (data.get("member_user_id") or data.get("user_id") or "").strip()
 
@@ -1672,7 +1552,9 @@ async def invite(data: dict, request: Request):
         raise HTTPException(status_code=404, detail="Team not found")
 
     if team.get("owner") != requester_id and not is_admin(requester_id):
-        raise HTTPException(status_code=403, detail="Only team owners or admins can invite users")
+        raise HTTPException(
+            status_code=403, detail="Only team owners or admins can invite users"
+        )
 
     try:
         teams_collection.update_one(
@@ -1682,7 +1564,11 @@ async def invite(data: dict, request: Request):
     except PyMongoError as exc:
         raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
 
-    track_usage_event(requester_id, "invite_to_team", {"team_id": team_id, "member_user_id": member_id})
+    track_usage_event(
+        requester_id,
+        "invite_to_team",
+        {"team_id": team_id, "member_user_id": member_id},
+    )
 
     return {"message": "User added"}
 
@@ -1731,7 +1617,9 @@ async def admin_stats(request: Request):
 
 @app.post("/track-usage")
 async def track_usage(data: dict, request: Request):
-    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(request)
+    user_id = (data.get("user_id") or "").strip() or extract_user_id_from_request(
+        request
+    )
     action = (data.get("action") or "").strip()
 
     if not user_id or not action:
@@ -1743,16 +1631,9 @@ async def track_usage(data: dict, request: Request):
     return {"message": "Tracked"}
 
 
-
- 
-    
-    
-    
-    
-
-# =====================================================
-# AUTO TRAIN
-# =====================================================
+                                                       
+            
+                                                       
 @app.post("/train")
 async def auto_train(
     request: Request,
@@ -1762,9 +1643,9 @@ async def auto_train(
     filename = (file.filename if file.filename is not None else "").lower()
     user_id = extract_user_id_from_request(request)
 
-    # ==========================================
-    # IMAGE DATASET
-    # ==========================================
+                                                
+                   
+                                                
     if filename.endswith(".zip"):
         if LIGHTWEIGHT_DEPLOYMENT:
             return {"error": lightweight_feature_message("Image training")}
@@ -1788,22 +1669,23 @@ async def auto_train(
         shutil.rmtree(IMAGE_DATASET_FOLDER, ignore_errors=True)
         os.makedirs(IMAGE_DATASET_FOLDER)
 
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(IMAGE_DATASET_FOLDER)
 
         universal_image_organizer(IMAGE_DATASET_FOLDER)
 
-        transform = transforms.Compose([
-            transforms.Resize((224,224)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(20),
-            transforms.ColorJitter(0.2,0.2,0.2,0.2),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485,0.456,0.406],
-                std=[0.229,0.224,0.225]
-            )
-        ])
+        transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(20),
+                transforms.ColorJitter(0.2, 0.2, 0.2, 0.2),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
 
         dataset = datasets.ImageFolder(IMAGE_DATASET_FOLDER, transform=transform)
 
@@ -1819,20 +1701,17 @@ async def auto_train(
         criterion = nn.CrossEntropyLoss()
 
         optimizer = torch.optim.Adam(
-            list(model.model.layer4.parameters()) +
-            list(model.model.fc.parameters()),
-            lr=0.001
+            list(model.model.layer4.parameters()) + list(model.model.fc.parameters()),
+            lr=0.001,
         )
 
         training_progress["progress"] = 0
         total_epochs = 5
 
         for epoch in range(total_epochs):
-
             model.train()
 
             for images, labels in loader:
-
                 images, labels = images.to(device), labels.to(device)
 
                 optimizer.zero_grad()
@@ -1849,10 +1728,10 @@ async def auto_train(
 
         training_progress["value"] = 100
 
-        torch.save({
-            "model_state_dict": model.state_dict(),
-            "classes": dataset.classes
-        }, CNN_MODEL_PATH)
+        torch.save(
+            {"model_state_dict": model.state_dict(), "classes": dataset.classes},
+            CNN_MODEL_PATH,
+        )
 
         joblib.dump(
             {
@@ -1892,7 +1771,9 @@ async def auto_train(
             model_version=os.path.basename(MODEL_PATH),
             dataset_type="image",
         )
-        track_usage_event(user_id, "train_image_model", {"model_name": model.__class__.__name__})
+        track_usage_event(
+            user_id, "train_image_model", {"model_name": model.__class__.__name__}
+        )
 
         return {
             "dataset_type": "image",
@@ -1905,9 +1786,9 @@ async def auto_train(
             "experiment": experiment,
         }
 
-    # ==========================================
-    # TABULAR / TIME SERIES
-    # ==========================================
+                                                
+                           
+                                                
     if filename.endswith(".csv") or filename.endswith(".xlsx"):
         update_progress(5, "Loading dataset", "Dataset loading started...")
 
@@ -1920,7 +1801,7 @@ async def auto_train(
             try:
                 df = pd.read_csv(file_path, sep=None, engine="python")
             except Exception:
-                    return {"error": "Failed to read CSV file"}
+                return {"error": "Failed to read CSV file"}
 
         else:
             try:
@@ -1942,17 +1823,16 @@ async def auto_train(
                 )
             }
 
-        numeric_cols = df.select_dtypes(include=["int64","float64"]).columns.tolist()
+        numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
         categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
 
-        # ==========================================
-        # TIME SERIES DETECTION
-        # ==========================================
+                                                    
+                               
+                                                    
 
         date_column = None
 
         for col in categorical_cols:
-
             if pd.api.types.is_numeric_dtype(df[col]):
                 continue
 
@@ -1962,11 +1842,10 @@ async def auto_train(
                 unique_ratio = pd.Series(converted).nunique() / max(len(df), 1)
 
                 if (
-                    valid_ratio > 0.8 and
-                    unique_ratio > 0.5 and
-                    any(k in col.lower() for k in ["date","time","year","month"])
+                    valid_ratio > 0.8
+                    and unique_ratio > 0.5
+                    and any(k in col.lower() for k in ["date", "time", "year", "month"])
                 ):
-
                     date_column = col
                     df[col] = converted
                     break
@@ -1975,13 +1854,11 @@ async def auto_train(
                 continue
 
         if date_column:
-
             df = df.sort_values(by=date_column)
 
             numeric_columns = []
 
             for col in df.columns:
-
                 if col == date_column:
                     continue
 
@@ -2000,10 +1877,9 @@ async def auto_train(
                 models = {}
 
                 for col in numeric_columns:
-
                     ts_df = df[[date_column, col]].dropna().copy()
 
-                    ts_df.columns = ["ds","y"]
+                    ts_df.columns = ["ds", "y"]
 
                     if len(ts_df) < 10:
                         continue
@@ -2023,12 +1899,15 @@ async def auto_train(
                         future_only = forecast.tail(10)[["ds", "yhat"]]
                         forecast_output[col] = future_only.to_dict(orient="records")
 
-                    joblib.dump({
-                        "models": models,
-                        "problem_type": "time_series_multi",
-                        "date_column": date_column,
-                        "target_columns": list(models.keys())
-                    }, MODEL_PATH)
+                    joblib.dump(
+                        {
+                            "models": models,
+                            "problem_type": "time_series_multi",
+                            "date_column": date_column,
+                            "target_columns": list(models.keys()),
+                        },
+                        MODEL_PATH,
+                    )
 
                     leaderboard_data = save_leaderboard_snapshot(
                         best_model_name="Prophet",
@@ -2054,7 +1933,9 @@ async def auto_train(
                         model_version=os.path.basename(MODEL_PATH),
                         dataset_type="time_series",
                     )
-                    track_usage_event(user_id, "train_time_series_model", {"model_name": "Prophet"})
+                    track_usage_event(
+                        user_id, "train_time_series_model", {"model_name": "Prophet"}
+                    )
 
                     return {
                         "dataset_type": "time_series",
@@ -2070,9 +1951,9 @@ async def auto_train(
                         "experiment": experiment,
                     }
 
-        # ==========================================
-        # TABULAR AUTOML ENGINE
-        # ==========================================
+                                                    
+                               
+                                                    
 
         if target_column is None:
             return {"error": "Provide target_column for tabular dataset"}
@@ -2080,7 +1961,7 @@ async def auto_train(
         if target_column not in df.columns:
             return {
                 "error": "Invalid target column",
-                "available_columns": list(df.columns)
+                "available_columns": list(df.columns),
             }
 
         X = df.drop(columns=[target_column])
@@ -2092,24 +1973,25 @@ async def auto_train(
         except Exception as e:
             return {"error": f"Feature engineering failed: {str(e)}"}
 
-        # Detect problem type
+                             
         problem_type = detect_training_problem_type(df, target_column)
 
         if problem_type == "classification":
             y = LabelEncoder().fit_transform(y)
 
-        # Numeric preprocessing
-        numeric_cols = X.select_dtypes(include=["int64","float64"]).columns.tolist()
+                               
+        numeric_cols = X.select_dtypes(include=["int64", "float64"]).columns.tolist()
 
         if len(numeric_cols) > 0:
-            X[numeric_cols] = SimpleImputer(strategy="mean").fit_transform(X[numeric_cols])
+            X[numeric_cols] = SimpleImputer(strategy="mean").fit_transform(
+                X[numeric_cols]
+            )
             X[numeric_cols] = StandardScaler().fit_transform(X[numeric_cols])
 
-        # Categorical preprocessing
+                                   
         categorical_cols = X.select_dtypes(include=["object"]).columns.tolist()
 
         for col in categorical_cols:
-
             X[col] = X[col].astype(str)
 
             X[col] = X[col].fillna("missing")
@@ -2122,9 +2004,9 @@ async def auto_train(
             X, y, test_size=0.2, random_state=42
         )
 
-        # ==========================
-        # AUTOML BRAIN SELECTION
-        # ==========================
+                                    
+                                
+                                    
 
         dataset_info = analyze_training_dataset(X, y)
 
@@ -2147,26 +2029,25 @@ async def auto_train(
         for name in recommended:
             if name in base_models:
                 models[name] = base_models[name]
-                
-        models = filter_models(models, X, y, problem_type)
-        
-        update_progress(
-            log=f"{len(models)} models selected after filtering"
-        )
 
-        # Add transformer if recommended
+        models = filter_models(models, X, y, problem_type)
+
+        update_progress(log=f"{len(models)} models selected after filtering")
+
+                                        
         if "TabTransformer" in recommended and problem_type == "classification":
             try:
                 TabTransformer = get_tab_transformer_class()
                 models["TabTransformer"] = TabTransformer(
-                    input_dim=X_train.shape[1],
-                    num_classes=len(np.unique(y_train))
+                    input_dim=X_train.shape[1], num_classes=len(np.unique(y_train))
                 )
             except RuntimeError as exc:
                 update_progress(log=str(exc))
 
         if not models:
-            return {"error": "No lightweight-compatible models are available for this dataset."}
+            return {
+                "error": "No lightweight-compatible models are available for this dataset."
+            }
 
         results = []
         best_model = None
@@ -2178,20 +2059,21 @@ async def auto_train(
         start_time = datetime.now()
         max_workers = 2 if LIGHTWEIGHT_DEPLOYMENT else 4
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-
             for name, model in models.items():
                 futures.append(
                     executor.submit(
                         train_single_model,
-                        name, model,
-                        X_train, X_test,
-                        y_train, y_test,
-                        problem_type
+                        name,
+                        model,
+                        X_train,
+                        X_test,
+                        y_train,
+                        y_test,
+                        problem_type,
                     )
                 )
 
             for future in as_completed(futures):
-
                 result = future.result()
 
                 name = result["model"]
@@ -2200,16 +2082,18 @@ async def auto_train(
 
                 update_progress(
                     status=f"Completed {name}",
-                    log=f"{name} finished with score {round(score,4)}"
+                    log=f"{name} finished with score {round(score, 4)}",
                 )
 
-                results.append({
-                    "model": name,
-                    "score": score,
-                    "time": result.get("time", 0),
-                    "metrics": result.get("metrics", {})
-                })
-                
+                results.append(
+                    {
+                        "model": name,
+                        "score": score,
+                        "time": result.get("time", 0),
+                        "metrics": result.get("metrics", {}),
+                    }
+                )
+
                 elapsed = (datetime.now() - start_time).total_seconds()
                 avg_time = elapsed / max(len(results), 1)
                 remaining = len(models) - len(results)
@@ -2226,17 +2110,15 @@ async def auto_train(
             model["rank"] = i + 1
         best_model_name = top_models[0]["model"]
         update_progress(85, "Finalizing", "Selecting best model...")
-        
-        
-        
-        # ✅ VERSIONING STARTS HERE
+
+                                  
         existing_models = [f for f in os.listdir(MODEL_DIR) if f.startswith("model_v")]
 
         version = len(existing_models) + 1
 
         model_filename = f"model_v{version}.pkl"
         model_path = os.path.join(MODEL_DIR, model_filename)
-        
+
         leaderboard_data = save_leaderboard_snapshot(
             best_model_name=best_model_name,
             model_version=model_filename,
@@ -2245,25 +2127,29 @@ async def auto_train(
             problem_type=problem_type,
         )
 
-        joblib.dump({
-            "model": best_model,
-            "feature_columns": X.columns.tolist(),
-            "problem_type": problem_type
-        }, model_path)
-        
-        
-        joblib.dump({
-            "model": best_model,
-            "feature_columns": X.columns.tolist(),
-            "problem_type": problem_type
-        }, MODEL_PATH)
-        
+        joblib.dump(
+            {
+                "model": best_model,
+                "feature_columns": X.columns.tolist(),
+                "problem_type": problem_type,
+            },
+            model_path,
+        )
+
+        joblib.dump(
+            {
+                "model": best_model,
+                "feature_columns": X.columns.tolist(),
+                "problem_type": problem_type,
+            },
+            MODEL_PATH,
+        )
+
         update_progress(95, "Saving", "Saving model and reports...")
-        
-        
-        # ==========================
-        # EXPERIMENT TRACKING
-        # ==========================
+
+                                    
+                             
+                                    
 
         experiment = append_experiment_log(
             best_model_name=best_model_name,
@@ -2292,54 +2178,56 @@ async def auto_train(
                 "score": float(best_score),
             },
         )
-        # ==========================
-        # DATASET QUALITY
-        # ==========================
+                                    
+                         
+                                    
         quality = dataset_quality_score(df)
 
-        # ==========================
-        # MODEL STRENGTH
-        # ==========================
-        strength = model_strength_summary(problem_type, {
-            "accuracy": best_score if problem_type == "classification" else None,
-            "r2": best_score if problem_type == "regression" else None
-        })
+                                    
+                        
+                                    
+        strength = model_strength_summary(
+            problem_type,
+            {
+                "accuracy": best_score if problem_type == "classification" else None,
+                "r2": best_score if problem_type == "regression" else None,
+            },
+        )
 
-        # ==========================
-        # EXPLANATION TEXT
-        # ==========================
+                                    
+                          
+                                    
         explanation = generate_explanation_text(problem_type, strength)
 
-        # ==========================
-        # SAVE REPORT
-        # ==========================
+                                    
+                     
+                                    
         report = {
             "dataset_quality": quality,
             "model_strength": strength,
-            "explanation": explanation
+            "explanation": explanation,
         }
 
         joblib.dump(report, TRAINING_REPORT_PATH)
-        
+
         ai_insights = generate_ai_insights(
-            df,
-            problem_type,
-            type(best_model).__name__,
-            best_score
+            df, problem_type, type(best_model).__name__, best_score
         )
-        
+
         generated_code = generate_training_pipeline_code(
             model_name=type(best_model).__name__,
             feature_columns=X.columns.tolist(),
             problem_type=problem_type,
-            target_column=target_column
+            target_column=target_column,
         )
-        
+
         with open(GENERATED_PIPELINE_PATH, "w") as f:
             f.write(generated_code)
 
         if problem_type == "classification":
-            update_progress(100, "Completed", "Training completed successfully", eta="0 sec")
+            update_progress(
+                100, "Completed", "Training completed successfully", eta="0 sec"
+            )
 
             return {
                 "dataset_type": "tabular",
@@ -2347,7 +2235,7 @@ async def auto_train(
                 "rows": len(df),
                 "target_column": target_column,
                 "best_model": best_model_name,
-                "accuracy": round(best_score,4),
+                "accuracy": round(best_score, 4),
                 "top_models": top_models,
                 "leaderboard": leaderboard_data["models"],
                 "generated_code": generated_code,
@@ -2355,12 +2243,12 @@ async def auto_train(
                 "ai_insights": ai_insights,
                 "experiment": experiment,
             }
-                
 
         else:
-
             mse = mean_squared_error(y_test, best_model.predict(X_test))
-            update_progress(100, "Completed", "Training completed successfully", eta="0 sec")
+            update_progress(
+                100, "Completed", "Training completed successfully", eta="0 sec"
+            )
 
             return {
                 "dataset_type": "tabular",
@@ -2368,8 +2256,8 @@ async def auto_train(
                 "rows": len(df),
                 "target_column": target_column,
                 "best_model": best_model_name,
-                "mse": round(mse,4),
-                "r2": round(best_score,4),
+                "mse": round(mse, 4),
+                "r2": round(best_score, 4),
                 "top_models": top_models,
                 "leaderboard": leaderboard_data["models"],
                 "generated_code": generated_code,
@@ -2381,15 +2269,9 @@ async def auto_train(
     return {"error": "Unsupported dataset"}
 
 
-
-
-
-
-
-
-# =====================================================
-# RISK ANALYSIS
-# =====================================================
+                                                       
+               
+                                                       
 def risk_analysis(prob_array):
 
     confidence = float(np.max(prob_array))
@@ -2401,23 +2283,12 @@ def risk_analysis(prob_array):
     else:
         risk = "High Risk"
 
-    return {
-        "confidence": round(confidence, 4),
-        "risk_level": risk
-    }
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    return {"confidence": round(confidence, 4), "risk_level": risk}
 
-# =====================================================
-# TABULAR / TIME SERIES PREDICT
-# =====================================================
+
+                                                       
+                               
+                                                       
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     if not os.path.exists(MODEL_PATH):
@@ -2429,16 +2300,14 @@ async def predict(file: UploadFile = File(...)):
     if problem_type == "image_classification":
         return {"error": "Latest model is an image model. Use /predict-image instead."}
 
-    # ==========================================
-    # TIME SERIES PREDICTION
-    # ==========================================
+                                                
+                            
+                                                
     if problem_type == "time_series_multi":
-
         models = model_package.get("models", {})
         forecast_output = {}
 
         for col, model in models.items():
-
             future = model.make_future_dataframe(periods=10)
             forecast = model.predict(future)
 
@@ -2449,12 +2318,12 @@ async def predict(file: UploadFile = File(...)):
         return {
             "problem_type": "Time-Series (Universal)",
             "forecast_horizon": 10,
-            "forecast": forecast_output
+            "forecast": forecast_output,
         }
 
-    # ==========================================
-    # TABULAR PREDICTION
-    # ==========================================
+                                                
+                        
+                                                
     model = model_package.get("model")
     feature_columns = model_package.get("feature_columns")
 
@@ -2462,7 +2331,7 @@ async def predict(file: UploadFile = File(...)):
         return {"error": "Invalid tabular model package"}
 
     try:
-        # Detect file type
+                          
         if (file.filename or "").endswith(".csv"):
             df = pd.read_csv(file.file, sep=None, engine="python")
         elif (file.filename or "").endswith(".xlsx"):
@@ -2470,28 +2339,24 @@ async def predict(file: UploadFile = File(...)):
         else:
             return {"error": "Unsupported file format"}
 
-        df.columns = (
-            df.columns
-            .str.strip()
-            .str.replace(r"[^\w]+", "_", regex=True)
-        )
+        df.columns = df.columns.str.strip().str.replace(r"[^\w]+", "_", regex=True)
 
-        # Validate required columns
+                                   
         missing_cols = [col for col in feature_columns if col not in df.columns]
         if missing_cols:
             return {
                 "error": "Missing required columns",
-                "missing_columns": missing_cols
+                "missing_columns": missing_cols,
             }
 
         df = df[feature_columns]
 
-        # Numeric handling
+                          
         numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
         if len(numeric_cols) > 0:
             df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
 
-        # Categorical handling
+                              
         categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
         for col in categorical_cols:
             df[col] = df[col].astype(str)
@@ -2499,26 +2364,25 @@ async def predict(file: UploadFile = File(...)):
 
         df = df.fillna(0)
 
-        # ==========================================
-        # CLASSIFICATION OUTPUT (With Risk Analysis)
-        # ==========================================
+                                                    
+                                                    
+                                                    
         if problem_type == "classification":
-
             predictions = model.predict(df)
 
-            probabilities = model.predict_proba(df) if hasattr(model, "predict_proba") else None
+            probabilities = (
+                model.predict_proba(df) if hasattr(model, "predict_proba") else None
+            )
 
             results = []
 
             for i in range(len(predictions)):
-
                 prediction = int(predictions[i])
 
                 if probabilities is not None:
-
                     prob_array = probabilities[i]
 
-                    # Use your risk analysis function
+                                                     
                     risk_info = risk_analysis(prob_array)
 
                     prob_dict = {
@@ -2526,41 +2390,41 @@ async def predict(file: UploadFile = File(...)):
                         for idx, prob in enumerate(prob_array)
                     }
 
-                    results.append({
-                        "prediction": prediction,
-                        "confidence": risk_info["confidence"],
-                        "risk_level": risk_info["risk_level"],
-                        "probabilities": prob_dict
-                    })
+                    results.append(
+                        {
+                            "prediction": prediction,
+                            "confidence": risk_info["confidence"],
+                            "risk_level": risk_info["risk_level"],
+                            "probabilities": prob_dict,
+                        }
+                    )
 
                 else:
-
-                    results.append({
-                        "prediction": prediction,
-                        "confidence": None,
-                        "risk_level": "Unknown",
-                        "probabilities": None
-                    })
+                    results.append(
+                        {
+                            "prediction": prediction,
+                            "confidence": None,
+                            "risk_level": "Unknown",
+                            "probabilities": None,
+                        }
+                    )
 
             return {
                 "problem_type": "Classification",
                 "num_predictions": len(results),
-                "predictions": results
+                "predictions": results,
             }
 
-        # ==========================================
-        # REGRESSION OUTPUT
-        # ==========================================
+                                                    
+                           
+                                                    
         elif problem_type == "regression":
-
             predictions = model.predict(df)
 
             return {
                 "problem_type": "Regression",
                 "num_predictions": len(predictions),
-                "predictions": [
-                    round(float(p), 4) for p in predictions
-                ]
+                "predictions": [round(float(p), 4) for p in predictions],
             }
 
         else:
@@ -2570,17 +2434,9 @@ async def predict(file: UploadFile = File(...)):
         return {"error": f"Prediction failed: {str(e)}"}
 
 
-
-
-
-
-
-
-
-
-# =====================================================
-# IMAGE PREDICT
-# =====================================================
+                                                       
+               
+                                                       
 @app.post("/predict-image")
 async def predict_image(file: UploadFile = File(...)):
     if LIGHTWEIGHT_DEPLOYMENT:
@@ -2590,7 +2446,7 @@ async def predict_image(file: UploadFile = File(...)):
         )
 
     if not os.path.exists(CNN_MODEL_PATH):
-        return {"error":"No trained CNN model"}
+        return {"error": "No trained CNN model"}
 
     torch_runtime = get_torch_runtime()
     torch = torch_runtime["torch"]
@@ -2605,27 +2461,29 @@ async def predict_image(file: UploadFile = File(...)):
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    image=Image.open(file.file).convert("RGB")
+    image = Image.open(file.file).convert("RGB")
 
-    transform = transforms.Compose([
-    transforms.Resize((224,224)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(20),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
-])
+    transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(20),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
 
-    img_tensor=transform(image).unsqueeze(0).to(device)
+    img_tensor = transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
-        output=model(img_tensor)
-        probs=torch.softmax(output,dim=1)
-        confidence,pred=torch.max(probs,1)
+        output = model(img_tensor)
+        probs = torch.softmax(output, dim=1)
+        confidence, pred = torch.max(probs, 1)
 
     return {
-        "predicted_class":classes[pred.item()],
-        "confidence":float(confidence.item())
+        "predicted_class": classes[pred.item()],
+        "confidence": float(confidence.item()),
     }
 
 
@@ -2656,10 +2514,9 @@ async def explain_image(file: UploadFile = File(...)):
 
     image = Image.open(file.file).convert("RGB")
 
-    transform = transforms.Compose([
-        transforms.Resize((224,224)),
-        transforms.ToTensor()
-    ])
+    transform = transforms.Compose(
+        [transforms.Resize((224, 224)), transforms.ToTensor()]
+    )
 
     img_tensor = transform(image).unsqueeze(0).to(device)
 
@@ -2671,12 +2528,12 @@ async def explain_image(file: UploadFile = File(...)):
     cam = generate_gradcam(model, img_tensor, pred.item())
 
     cam = np.uint8(255 * cam)
-    cam = Image.fromarray(cam).resize((224,224))
+    cam = Image.fromarray(cam).resize((224, 224))
     cam = np.array(cam)
 
-    original = np.array(image.resize((224,224)))
+    original = np.array(image.resize((224, 224)))
 
-    heatmap = plt.cm.jet(cam)[:,:,:3]
+    heatmap = plt.cm.jet(cam)[:, :, :3]
     heatmap = np.uint8(255 * heatmap)
 
     superimposed = heatmap * 0.4 + original
@@ -2691,17 +2548,9 @@ async def explain_image(file: UploadFile = File(...)):
     return StreamingResponse(img_io, media_type="image/png")
 
 
-
-
-
-
-
-
-
-
-# =====================================================
-# MODEL EXPLAIN
-# =====================================================
+                                                       
+               
+                                                       
 @app.get("/model-explain")
 def model_explain():
 
@@ -2712,77 +2561,52 @@ def model_explain():
 
     problem_type = model_package.get("problem_type")
 
-    # 🚫 Block time-series explanation
+                                     
     if problem_type in ["time_series", "time_series_multi"]:
-        return {
-            "message": "Model explain not supported for Time-Series models"
-        }
+        return {"message": "Model explain not supported for Time-Series models"}
 
     if problem_type == "image_classification":
         return {"message": "Model explain not supported for image models"}
 
-    # 🚫 Safety check
+                    
     if "model" not in model_package:
-        return {
-            "error": "No tabular model found to explain"
-        }
+        return {"error": "No tabular model found to explain"}
 
     model = model_package["model"]
     feature_columns = model_package.get("feature_columns", [])
 
-    # Feature Importance (Tree Models)
+                                      
     if hasattr(model, "feature_importances_"):
-
         importance = dict(
             sorted(
                 zip(feature_columns, model.feature_importances_),
                 key=lambda x: x[1],
-                reverse=True
+                reverse=True,
             )
         )
 
-        return {
-            "model_type": type(model).__name__,
-            "feature_importance": importance
-        }
+        return {"model_type": type(model).__name__, "feature_importance": importance}
 
-    # Coefficients (Linear Models)
+                                  
     elif hasattr(model, "coef_"):
-
         coef = model.coef_
 
         if len(coef.shape) > 1:
             coef = coef[0]
 
         importance = dict(
-            sorted(
-                zip(feature_columns, coef),
-                key=lambda x: abs(x[1]),
-                reverse=True
-            )
+            sorted(zip(feature_columns, coef), key=lambda x: abs(x[1]), reverse=True)
         )
 
-        return {
-            "model_type": type(model).__name__,
-            "coefficients": importance
-        }
+        return {"model_type": type(model).__name__, "coefficients": importance}
 
     else:
-        return {
-            "message": "This model type does not support explainability"
-        }
+        return {"message": "This model type does not support explainability"}
 
 
-
-
-
-
-
-
-
-# =====================================================
-# SHAP
-# =====================================================
+                                                       
+      
+                                                       
 @app.post("/shap-explain")
 async def shap_explain(file: UploadFile = File(...)):
 
@@ -2803,7 +2627,7 @@ async def shap_explain(file: UploadFile = File(...)):
     try:
         shap = get_shap_module()
 
-        # Load input file
+                         
         if (file.filename or "").endswith(".csv"):
             df = pd.read_csv(file.file, sep=None, engine="python")
         elif (file.filename or "").endswith(".xlsx"):
@@ -2813,7 +2637,7 @@ async def shap_explain(file: UploadFile = File(...)):
 
         df = df[feature_columns]
 
-        # Preprocessing (same as predict)
+                                         
         numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns
         df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
 
@@ -2823,68 +2647,56 @@ async def shap_explain(file: UploadFile = File(...)):
 
         df = df.fillna(0)
 
-        # 🔥 SHAP EXPLAINER
+                          
         explainer = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(df)
 
-        # Global importance
+                           
         if isinstance(shap_values, list):
             shap_values = shap_values[0]
 
         importance = np.abs(shap_values).mean(axis=0)
 
         feature_importance = dict(
-            sorted(
-                zip(feature_columns, importance),
-                key=lambda x: x[1],
-                reverse=True
-            )
+            sorted(zip(feature_columns, importance), key=lambda x: x[1], reverse=True)
         )
 
-        # Sample explanation (first row)
+                                        
         sample_values = (
             shap_values.values[0].tolist()
             if hasattr(shap_values, "values")
             else shap_values[0].tolist()
         )
-        sample_explanation = dict(
-            zip(feature_columns, sample_values)
-        )
+        sample_explanation = dict(zip(feature_columns, sample_values))
 
         return {
             "feature_importance": feature_importance,
-            "sample_explanation": sample_explanation
+            "sample_explanation": sample_explanation,
         }
 
     except Exception as e:
         return {"error": str(e)}
 
 
-
-
-
-
-
-# =====================================================
-# DOWNLOAD CODE (MULTI-FORMAT)
-# =====================================================
+                                                       
+                              
+                                                       
 @app.get("/download-code/{format}")
 def download_code(format: str):
 
     if not os.path.exists(GENERATED_PIPELINE_PATH):
         return {"error": "No generated code found. Train a model first."}
 
-    # ==========================
-    # PYTHON SCRIPT
-    # ==========================
+                                
+                   
+                                
     if format == "python":
         return FileResponse(GENERATED_PIPELINE_PATH, filename="pipeline.py")
 
-    # ==========================
-    # JUPYTER NOTEBOOK
-    # ==========================
+                                
+                      
+                                
     elif format == "notebook":
-
         with open(GENERATED_PIPELINE_PATH, "r") as f:
             code_lines = f.read().split("\n")
 
@@ -2895,17 +2707,12 @@ def download_code(format: str):
                     "metadata": {},
                     "source": [line + "\n" for line in code_lines],
                     "outputs": [],
-                    "execution_count": None
+                    "execution_count": None,
                 }
             ],
-            "metadata": {
-                "kernelspec": {
-                    "name": "python3",
-                    "display_name": "Python 3"
-                }
-            },
+            "metadata": {"kernelspec": {"name": "python3", "display_name": "Python 3"}},
             "nbformat": 4,
-            "nbformat_minor": 5
+            "nbformat_minor": 5,
         }
 
         notebook_path = GENERATED_NOTEBOOK_PATH
@@ -2915,11 +2722,10 @@ def download_code(format: str):
 
         return FileResponse(notebook_path)
 
-    # ==========================
-    # FASTAPI TEMPLATE
-    # ==========================
+                                
+                      
+                                
     elif format == "api":
-
         api_code = """
 from fastapi import FastAPI
 import joblib
@@ -2943,11 +2749,10 @@ def predict(data: dict):
 
         return FileResponse(api_path)
 
-    # ==========================
-    # REQUIREMENTS.TXT
-    # ==========================
+                                
+                      
+                                
     elif format == "requirements":
-
         requirements = """
 pandas
 numpy
@@ -2964,11 +2769,10 @@ uvicorn
 
         return FileResponse(req_path, filename="requirements.txt")
 
-    # ==========================
-    # DOCKER PACKAGE
-    # ==========================
+                                
+                    
+                                
     elif format == "docker":
-
         dockerfile = """
 FROM python:3.10
 
@@ -2984,35 +2788,33 @@ CMD ["python", "generated_pipeline.py"]
         with open(GENERATED_DOCKERFILE_PATH, "w") as f:
             f.write(dockerfile.strip())
 
-        # Ensure requirements exist
+                                   
         with open(GENERATED_REQUIREMENTS_PATH, "w") as f:
             f.write("pandas\nnumpy\nscikit-learn\njoblib\n")
 
         zip_path = DOCKER_PACKAGE_PATH
 
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
+        with zipfile.ZipFile(zip_path, "w") as zipf:
             zipf.write(GENERATED_PIPELINE_PATH, arcname="generated_pipeline.py")
             zipf.write(GENERATED_REQUIREMENTS_PATH, arcname="requirements.txt")
             zipf.write(GENERATED_DOCKERFILE_PATH, arcname="Dockerfile")
 
         return FileResponse(zip_path)
 
-    # ==========================
-    # FULL PROJECT ZIP
-    # ==========================
+                                
+                      
+                                
     elif format == "project":
-
         zip_path = FULL_PROJECT_ZIP_PATH
 
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-
+        with zipfile.ZipFile(zip_path, "w") as zipf:
             if os.path.exists(GENERATED_PIPELINE_PATH):
                 zipf.write(GENERATED_PIPELINE_PATH, arcname="generated_pipeline.py")
 
             if os.path.exists(MODEL_PATH):
                 zipf.write(MODEL_PATH, arcname=os.path.basename(MODEL_PATH))
 
-            # add requirements
+                              
             with open(GENERATED_REQUIREMENTS_PATH, "w") as f:
                 f.write("pandas\nnumpy\nscikit-learn\njoblib\n")
 
@@ -3020,36 +2822,28 @@ CMD ["python", "generated_pipeline.py"]
 
         return FileResponse(zip_path)
 
-    # ==========================
-    # INVALID FORMAT
-    # ==========================
+                                
+                    
+                                
     else:
         return {"error": "Format not supported"}
 
 
-
-
-# =====================================================
-# EXPERIMENTS
-# =====================================================
+                                                       
+             
+                                                       
 @app.get("/experiments")
 def get_experiments(request: Request):
     user_id = extract_user_id_from_request(request)
     data = filter_experiments_for_user(load_experiment_logs(), user_id)
     normalized = [normalize_experiment_entry(item) for item in data]
 
-    return {
-        "total_experiments": len(normalized),
-        "experiments": normalized[::-1]
-    }
-    
-    
+    return {"total_experiments": len(normalized), "experiments": normalized[::-1]}
 
 
-
-# =====================================================
-# AUTO INSIGHTS
-# =====================================================
+                                                       
+               
+                                                       
 @app.get("/insights")
 def get_insights(request: Request):
     user_id = extract_user_id_from_request(request)
@@ -3075,17 +2869,11 @@ def get_insights(request: Request):
         "total_experiments": len(data),
         "average_score": round(sum(scores) / len(scores), 4) if scores else None,
     }
-    
-    
-    
-    
-    
-    
-    
-    
-# =====================================================
-# AI INSIGHTS (CHATGPT-LIKE)
-# =====================================================
+
+
+                                                       
+                            
+                                                       
 @app.get("/ai-insights")
 def get_ai_insights(request: Request):
     user_id = extract_user_id_from_request(request)
@@ -3098,23 +2886,16 @@ def get_ai_insights(request: Request):
 
     insights = [
         f"Best model: {latest['model_name']}",
-        f"Score: {round(latest['score'],4) if isinstance(latest.get('score'), (int, float)) else 'N/A'}",
-        f"Dataset rows: {latest.get('rows', 'N/A')}"
+        f"Score: {round(latest['score'], 4) if isinstance(latest.get('score'), (int, float)) else 'N/A'}",
+        f"Dataset rows: {latest.get('rows', 'N/A')}",
     ]
 
-    return {
-        "insights": insights
-    }    
-    
-    
-    
-    
-    
-    
-    
-# =====================================================
-# DOWNLOAD
-# =====================================================
+    return {"insights": insights}
+
+
+                                                       
+          
+                                                       
 @app.get("/download-model/{version}")
 def download_model(version: str):
 
@@ -3141,7 +2922,6 @@ def download_latest_model():
     return {"error": "No trained model"}
 
 
-
 @app.get("/leaderboard")
 def get_leaderboard(request: Request):
     user_id = extract_user_id_from_request(request)
@@ -3151,7 +2931,8 @@ def get_leaderboard(request: Request):
         latest_experiment = normalize_experiment_entry(user_experiments[-1])
         return build_leaderboard_payload(
             best_model_name=latest_experiment["best_model"],
-            model_version=latest_experiment.get("model_version") or os.path.basename(MODEL_PATH),
+            model_version=latest_experiment.get("model_version")
+            or os.path.basename(MODEL_PATH),
             models=latest_experiment.get("leaderboard", []),
             dataset_type=latest_experiment.get("dataset_type"),
             problem_type=latest_experiment.get("problem_type"),
@@ -3173,7 +2954,6 @@ def get_leaderboard(request: Request):
     return leaderboard
 
 
-
 @app.get("/training-report")
 def get_training_report():
 
@@ -3185,11 +2965,6 @@ def get_training_report():
     return report
 
 
-
-
-
-
-
 @app.websocket("/ws/progress")
 async def websocket_progress(websocket: WebSocket):
     await websocket.accept()
@@ -3199,11 +2974,8 @@ async def websocket_progress(websocket: WebSocket):
             await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         return
-        
-        
-        
-        
-        
+
+
 @app.post("/analyze-dataset")
 async def analyze_dataset_file(file: UploadFile = File(...)):
     filename = (file.filename or "").lower()
@@ -3224,7 +2996,9 @@ async def analyze_dataset_file(file: UploadFile = File(...)):
 
 
 @app.post("/auto-ml-insights")
-async def auto_ml_insights(file: UploadFile = File(...), target_column: str = Form(...)):
+async def auto_ml_insights(
+    file: UploadFile = File(...), target_column: str = Form(...)
+):
     filename = (file.filename or "").lower()
 
     if filename.endswith(".csv"):
@@ -3271,7 +3045,9 @@ async def generate_image(request: Request, data: dict = Body(...)):
         track_usage_event(user_id, "generate_image", {"prompt_length": len(prompt)})
         return {"image_url": f"data:image/png;base64,{image_b64}"}
 
-    raise HTTPException(status_code=502, detail="Image generation returned no usable image output.")
+    raise HTTPException(
+        status_code=502, detail="Image generation returned no usable image output."
+    )
 
 
 @app.post("/adversarial-test")
@@ -3324,7 +3100,10 @@ async def generate_code(request: Request, data: dict = Body(...)):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Generate clean ML Python code only. Avoid explanations unless asked."},
+                {
+                    "role": "system",
+                    "content": "Generate clean ML Python code only. Avoid explanations unless asked.",
+                },
                 {"role": "user", "content": task},
             ],
         )
@@ -3376,11 +3155,15 @@ async def text_to_speech(request: Request, data: dict = Body(...)):
             audio_bytes = b""
 
     if not audio_bytes:
-        raise HTTPException(status_code=502, detail="Text-to-speech returned no audio data.")
+        raise HTTPException(
+            status_code=502, detail="Text-to-speech returned no audio data."
+        )
 
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
-    track_usage_event(user_id, "text_to_speech", {"voice": voice, "text_length": len(text)})
+    track_usage_event(
+        user_id, "text_to_speech", {"voice": voice, "text_length": len(text)}
+    )
 
     return {"audio_url": f"data:audio/mpeg;base64,{audio_b64}"}
 
@@ -3435,11 +3218,8 @@ Answer like a professional ML expert helping inside an AutoML dashboard.
         reply = "I am your AI assistant. Ask me about models, training, datasets, or ML errors."
 
     return {"reply": reply}
-        
+
 
 @app.get("/")
 def home():
-    return {
-        "status": "Backend is LIVE 🚀",
-        "message": "AutoML API running"
-    }
+    return {"status": "Backend is LIVE 🚀", "message": "AutoML API running"}

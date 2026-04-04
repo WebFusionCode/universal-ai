@@ -55,9 +55,7 @@ export default function DownloadCenter() {
         </div>
 
         <div className="glass rounded-2xl border border-cyan-400/20 p-6">
-          <h3 className="text-xl font-semibold text-cyan-300">
-            Download Code
-          </h3>
+          <h3 className="text-xl font-semibold text-cyan-300">Download Code</h3>
           <p className="mt-2 text-sm text-gray-400">
             Generate a script, notebook, API starter, or full project package.
           </p>

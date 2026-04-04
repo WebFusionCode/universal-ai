@@ -96,7 +96,9 @@ export default function Teams() {
           </section>
 
           <section className="glass rounded-3xl border border-white/10 p-6">
-            <h2 className="text-xl font-semibold text-cyan-300">Invite Member</h2>
+            <h2 className="text-xl font-semibold text-cyan-300">
+              Invite Member
+            </h2>
             <input
               value={inviteTeamId}
               onChange={(event) => setInviteTeamId(event.target.value)}
@@ -127,7 +129,9 @@ export default function Teams() {
                   key={team.team_id}
                   className="rounded-2xl border border-white/10 bg-black/30 p-4"
                 >
-                  <p className="text-lg font-semibold">{team.name || "Untitled Team"}</p>
+                  <p className="text-lg font-semibold">
+                    {team.name || "Untitled Team"}
+                  </p>
                   <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500">
                     {team.team_id}
                   </p>

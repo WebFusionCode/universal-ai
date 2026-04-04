@@ -47,9 +47,13 @@ export default function ImageAI() {
       setAnalyzing(true);
       setError("");
 
-      const predictionRes = await API.post("/predict-image", predictionFormData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const predictionRes = await API.post(
+        "/predict-image",
+        predictionFormData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        },
+      );
 
       setPrediction(predictionRes.data);
 
@@ -155,11 +159,7 @@ export default function ImageAI() {
             {heatmap ? (
               <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4">
                 <p className="text-sm text-slate-400">Explanation Heatmap</p>
-                <img
-                  src={heatmap}
-                  alt="Heatmap"
-                  className="mt-4 rounded-2xl"
-                />
+                <img src={heatmap} alt="Heatmap" className="mt-4 rounded-2xl" />
               </div>
             ) : null}
           </section>

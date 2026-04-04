@@ -25,19 +25,15 @@ def recommend_models(dataset_info, problem_type):
     cols = dataset_info["columns"]
 
     if rows < 1000:
-
         models += ["LogisticRegression", "KNN"]
 
     if 1000 <= rows < 10000:
-
         models += ["RandomForest"]
 
     if rows >= 10000:
-
         models += ["LightGBM"]
 
     if cols > 20:
-
         models += ["TabTransformer"]
 
     models += ["RandomForest"]

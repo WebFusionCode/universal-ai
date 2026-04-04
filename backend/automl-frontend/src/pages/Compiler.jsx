@@ -186,8 +186,14 @@ export default function Compiler() {
               </h2>
               <ul className="mt-4 space-y-3 text-sm text-slate-400">
                 <li>Use this as a drafting workspace for generated ML code.</li>
-                <li>Switch templates to bootstrap classification, regression, or forecasting flows.</li>
-                <li>Use the Download Center to export production assets from the backend.</li>
+                <li>
+                  Switch templates to bootstrap classification, regression, or
+                  forecasting flows.
+                </li>
+                <li>
+                  Use the Download Center to export production assets from the
+                  backend.
+                </li>
               </ul>
             </div>
           </aside>
