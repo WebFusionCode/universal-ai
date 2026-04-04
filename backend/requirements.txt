@@ -8,8 +8,8 @@ python-dotenv
 joblib
 pymongo
 dnspython
-passlib
-bcrypt
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 python-jose
 jinja2
 openpyxl
