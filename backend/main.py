@@ -72,6 +72,9 @@ print("🚀 Starting FastAPI app...")
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+import os
+print("MONGO_URL:", os.getenv("MONGO_URL"))
+
 app = FastAPI()
 print("✅ App created")
 
