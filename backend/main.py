@@ -32,10 +32,17 @@ import pandas as pd
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
-EXPERIMENTS_PATH = os.path.join(BASE_DIR, "experiments.json")
+# ===== DEPLOYMENT SETTINGS =====
+LIGHTWEIGHT_DEPLOYMENT = True   # for Render free tier
+MAX_LIGHTWEIGHT_ROWS = 10000    # limit dataset size
 
+# ===== DEFAULT SETTINGS =====
 PREVIEW_RESPONSE_ROWS = 5
+
+# ===== FILE PATHS =====
+UPLOAD_FOLDER = "uploads"
+EXPERIMENTS_DIR = "experiments"
+EXPERIMENTS_PATH = os.path.join(EXPERIMENTS_DIR, "experiments.json")
 
 training_progress = {
     "progress": 0,
@@ -44,6 +51,7 @@ training_progress = {
 }
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(EXPERIMENTS_DIR, exist_ok=True)
 
 if not os.path.exists(EXPERIMENTS_PATH):
     with open(EXPERIMENTS_PATH, "w") as f:
