@@ -30,6 +30,16 @@ from jose import JWTError, jwt
 import numpy as np
 import pandas as pd
 
+SECRET_KEY = "mysecretkey123"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
 try:
     from pymongo.errors import PyMongoError
 except Exception:
@@ -1396,22 +1406,13 @@ async def login(data: UserLogin):
         if not user or not verify_password(data.password, user["password"]):
             return {"error": "Invalid credentials"}
 
-        token = jwt.encode(
-            {
-                "sub": user["user_id"],
-                "exp": datetime.utcnow() + timedelta(hours=10),
-            },
-            SECRET_KEY,
-            algorithm=ALGORITHM,
-        )
-
         track_usage_event(user["user_id"], "login")
 
+        access_token = create_access_token({"sub": user["email"]})
+
         return {
-            "token": token,
-            "user_id": user["user_id"],
-            "email": user["email"],
-            "role": user.get("role", "user"),
+            "access_token": access_token,
+            "token_type": "bearer"
         }
 
     except Exception as e:
