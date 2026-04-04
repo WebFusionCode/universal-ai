@@ -14,3 +14,4 @@ python-jose
 jinja2
 openpyxl
 openai
+email-validator
