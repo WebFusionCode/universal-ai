@@ -35,6 +35,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 EXPERIMENTS_PATH = os.path.join(BASE_DIR, "experiments.json")
 
+PREVIEW_RESPONSE_ROWS = 5
+
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 if not os.path.exists(EXPERIMENTS_PATH):
