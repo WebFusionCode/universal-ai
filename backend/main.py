@@ -30,6 +30,17 @@ from jose import JWTError, jwt
 import numpy as np
 import pandas as pd
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+EXPERIMENTS_PATH = os.path.join(BASE_DIR, "experiments.json")
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+if not os.path.exists(EXPERIMENTS_PATH):
+    with open(EXPERIMENTS_PATH, "w") as f:
+        f.write("[]")
+
 SECRET_KEY = "mysecretkey123"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
@@ -271,9 +282,10 @@ def get_image_module():
 
 @lru_cache(maxsize=1)
 def get_matplotlib_pyplot():
-    mpl_config_dir = BASE_DIR / ".matplotlib"
-    mpl_config_dir.mkdir(exist_ok=True)
-    os.environ.setdefault("MPLCONFIGDIR", str(mpl_config_dir))
+    mpl_config_dir = os.path.join(BASE_DIR, ".matplotlib")
+    if not os.path.exists(mpl_config_dir):
+        os.makedirs(mpl_config_dir, exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", mpl_config_dir)
 
     try:
         import matplotlib.pyplot as plt
