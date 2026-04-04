@@ -131,8 +131,6 @@ if os.path.exists(STATIC_DIR):
 else:
     print("⚠️ Static directory not found, skipping mount")
 
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-
 
 def lightweight_feature_message(feature_name):
     return (
@@ -3457,5 +3455,8 @@ Answer like a professional ML expert helping inside an AutoML dashboard.
         
 
 @app.get("/")
-async def dashboard(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+def home():
+    return {
+        "status": "Backend is LIVE 🚀",
+        "message": "AutoML API running"
+    }
