@@ -1,49 +1,38 @@
+import asyncio
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from datetime import timedelta
+from functools import lru_cache
+import io
+import json
 import os
 from pathlib import Path
+import random
+import shutil
 import uuid
+import zipfile
 
-from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).resolve().parent / ".env")
-
-MPL_CONFIG_DIR = Path(__file__).resolve().parent / ".matplotlib"
-MPL_CONFIG_DIR.mkdir(exist_ok=True)
-os.environ["MPLCONFIGDIR"] = str(MPL_CONFIG_DIR)
-
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv(*args, **kwargs):
+        return False
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-
-from prophet import Prophet
-import asyncio
-from datetime import datetime
-from datetime import timedelta
-import io
-import json
 import joblib
-import matplotlib.pyplot as plt
+from jose import JWTError, jwt
 import numpy as np
-from openai import OpenAI
 import pandas as pd
 from passlib.context import CryptContext
-from PIL import Image
-import random
-import shap
-import shutil
-import torch
-import torch.nn as nn
-from torchvision import datasets, transforms, models
-from torch.utils.data import DataLoader
-import zipfile
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from jose import JWTError, jwt
-from pymongo.errors import PyMongoError
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+try:
+    from pymongo.errors import PyMongoError
+except Exception:
+    PyMongoError = Exception
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
@@ -57,14 +46,10 @@ from database import (
     usage_collection,
     users_collection,
 )
-from models.model_library import CLASSIFICATION_MODELS, REGRESSION_MODELS
-from models.transformer_models import TabTransformer
-from utils.automl_brain import analyze_dataset as analyze_training_dataset
-from utils.automl_brain import recommend_models
-from utils.code_generator import generate_training_code
-from utils.feature_engineering import auto_feature_engineering
-from utils.hyperparameter_tuning import tune_random_forest
-from utils.problem_detection import detect_problem_type
+
+print("🚀 Starting FastAPI app...")
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
 
@@ -74,6 +59,7 @@ from utils.problem_detection import detect_problem_type
 # =====================================================
 
 app = FastAPI()
+print("✅ App created")
 
 app.add_middleware(
     CORSMiddleware,
@@ -116,12 +102,17 @@ TRAINING_REPORT_PATH = str(BASE_DIR / "training_report.pkl")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 PREVIEW_RESPONSE_ROWS = 10
+LIGHTWEIGHT_DEPLOYMENT = (
+    os.getenv("LIGHTWEIGHT_DEPLOYMENT", "1").strip().lower()
+    not in {"0", "false", "no"}
+)
+MAX_LIGHTWEIGHT_ROWS = int(os.getenv("MAX_LIGHTWEIGHT_ROWS", "25000"))
+LIGHTWEIGHT_BLOCKED_MODELS = {"CatBoost", "LightGBM", "TabTransformer", "XGBoost"}
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 if OPENAI_API_KEY in {"your_api_key_here", "your_key"}:
     OPENAI_API_KEY = ""
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5").strip() or "gpt-image-1.5"
 
 training_progress = {
@@ -137,16 +128,177 @@ os.makedirs(IMAGE_DATASET_FOLDER, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def lightweight_feature_message(feature_name):
+    return (
+        f"{feature_name} is disabled in lightweight deployment mode to keep startup "
+        "stable and memory usage low."
+    )
+
+
+@lru_cache(maxsize=1)
+def get_openai_client():
+    if not OPENAI_API_KEY:
+        return None
+
+    try:
+        from openai import OpenAI
+    except Exception:
+        return None
+
+    return OpenAI(api_key=OPENAI_API_KEY)
+
+
+@lru_cache(maxsize=1)
+def get_model_library():
+    from models.model_library import CLASSIFICATION_MODELS, REGRESSION_MODELS
+
+    return CLASSIFICATION_MODELS, REGRESSION_MODELS
+
+
+def analyze_training_dataset(X, y):
+    from utils.automl_brain import analyze_dataset
+
+    return analyze_dataset(X, y)
+
+
+def recommend_training_models(dataset_info, problem_type):
+    from utils.automl_brain import recommend_models
+
+    return recommend_models(dataset_info, problem_type)
+
+
+def run_auto_feature_engineering(df):
+    from utils.feature_engineering import auto_feature_engineering
+
+    return auto_feature_engineering(df)
+
+
+def detect_training_problem_type(df, target_column):
+    from utils.problem_detection import detect_problem_type
+
+    return detect_problem_type(df, target_column)
+
+
+def generate_training_pipeline_code(model_name, feature_columns, problem_type, target_column):
+    from utils.code_generator import generate_training_code
+
+    return generate_training_code(
+        model_name=model_name,
+        feature_columns=feature_columns,
+        problem_type=problem_type,
+        target_column=target_column,
+    )
+
+
+def get_tune_random_forest():
+    from utils.hyperparameter_tuning import tune_random_forest
+
+    return tune_random_forest
+
+
+@lru_cache(maxsize=1)
+def get_torch_runtime():
+    if LIGHTWEIGHT_DEPLOYMENT:
+        raise RuntimeError(lightweight_feature_message("Deep learning features"))
+
+    try:
+        import torch
+        import torch.nn as nn
+        from torch.utils.data import DataLoader
+        from torchvision import datasets, models, transforms
+    except Exception as exc:
+        raise RuntimeError(
+            "PyTorch dependencies are not installed. Add torch and torchvision to enable deep learning features."
+        ) from exc
+
+    return {
+        "torch": torch,
+        "nn": nn,
+        "DataLoader": DataLoader,
+        "datasets": datasets,
+        "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        "models": models,
+        "transforms": transforms,
+    }
+
+
+@lru_cache(maxsize=1)
+def get_prophet_class():
+    if LIGHTWEIGHT_DEPLOYMENT:
+        raise RuntimeError(lightweight_feature_message("Time-series training"))
+
+    try:
+        from prophet import Prophet
+    except Exception as exc:
+        raise RuntimeError(
+            "Prophet is not installed. Add it back to enable time-series training."
+        ) from exc
+
+    return Prophet
+
+
+@lru_cache(maxsize=1)
+def get_shap_module():
+    if LIGHTWEIGHT_DEPLOYMENT:
+        raise RuntimeError(lightweight_feature_message("SHAP explanations"))
+
+    try:
+        import shap
+    except Exception as exc:
+        raise RuntimeError(
+            "SHAP is not installed. Add shap back to enable SHAP explanations."
+        ) from exc
+
+    return shap
+
+
+@lru_cache(maxsize=1)
+def get_image_module():
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError(
+            "Pillow is not installed. Add pillow to enable image processing."
+        ) from exc
+
+    return Image
+
+
+@lru_cache(maxsize=1)
+def get_matplotlib_pyplot():
+    mpl_config_dir = BASE_DIR / ".matplotlib"
+    mpl_config_dir.mkdir(exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(mpl_config_dir))
+
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        raise RuntimeError(
+            "matplotlib is not installed. Add it back to enable image explanation heatmaps."
+        ) from exc
+
+    return plt
+
+
+def get_tab_transformer_class():
+    if LIGHTWEIGHT_DEPLOYMENT:
+        raise RuntimeError(lightweight_feature_message("Transformer models"))
+
+    from models.transformer_models import TabTransformer
+
+    return TabTransformer
 
 
 def require_openai_client():
-    if not openai_client:
+    client = get_openai_client()
+
+    if not client:
         raise HTTPException(
             status_code=503,
             detail="OPENAI_API_KEY is not configured on the backend.",
         )
-    return openai_client
+    return client
 
 
 def extract_user_id_from_request(request: Request):
@@ -604,6 +756,10 @@ def auto_ml_recommendation(df, target_column):
         best_model_hint = (
             "Prophet is a strong starting point for clean business forecasting data."
         )
+
+        if LIGHTWEIGHT_DEPLOYMENT:
+            recommended_models = ["RandomForestRegressor (Lag Features)"]
+            best_model_hint = lightweight_feature_message("Time-series training")
     else:
         target_series = df[target_column]
 
@@ -622,6 +778,12 @@ def auto_ml_recommendation(df, target_column):
             best_model_hint = (
                 "RandomForest or XGBoost usually handle mixed tabular features well."
             )
+
+            if LIGHTWEIGHT_DEPLOYMENT:
+                recommended_models = ["LogisticRegression", "RandomForest"]
+                best_model_hint = (
+                    "RandomForest is a safer lightweight deployment choice for tabular classification."
+                )
         else:
             problem_type = "Regression"
             recommended_models = [
@@ -637,6 +799,15 @@ def auto_ml_recommendation(df, target_column):
             best_model_hint = (
                 "XGBoostRegressor is often a strong baseline for tabular regression."
             )
+
+            if LIGHTWEIGHT_DEPLOYMENT:
+                recommended_models = [
+                    "LinearRegression",
+                    "RandomForestRegressor",
+                ]
+                best_model_hint = (
+                    "RandomForestRegressor is a safer lightweight deployment choice for tabular regression."
+                )
 
     missing = int(df.isnull().sum().sum())
     issues = []
@@ -688,11 +859,15 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
 
     try:
         if name == "TabTransformer":
+            torch_runtime = get_torch_runtime()
+            torch = torch_runtime["torch"]
+            nn = torch_runtime["nn"]
+            device = torch_runtime["device"]
 
-            X_torch = torch.tensor(X_train.values, dtype=torch.float32).to(DEVICE)
-            y_torch = torch.tensor(y_train.values, dtype=torch.long).to(DEVICE)
+            X_torch = torch.tensor(X_train.values, dtype=torch.float32).to(device)
+            y_torch = torch.tensor(y_train.values, dtype=torch.long).to(device)
 
-            model = model.to(DEVICE)
+            model = model.to(device)
 
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
             loss_fn = nn.CrossEntropyLoss()
@@ -706,7 +881,7 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
 
             with torch.no_grad():
                 preds = model(
-                    torch.tensor(X_test.values, dtype=torch.float32).to(DEVICE)
+                    torch.tensor(X_test.values, dtype=torch.float32).to(device)
                 )
                 preds = torch.argmax(preds, dim=1).cpu().numpy()
 
@@ -825,7 +1000,10 @@ def generate_ai_insights(df, problem_type, best_model_name, best_score):
     if len(df) < 500:
         insights.append("Dataset is small. Consider adding more data for better performance.")
     elif len(df) > 50000:
-        insights.append("Large dataset detected. Consider using deep learning models.")
+        if LIGHTWEIGHT_DEPLOYMENT:
+            insights.append("Large dataset detected. Use sampling or simpler models in lightweight deployment.")
+        else:
+            insights.append("Large dataset detected. Consider using deep learning models.")
 
     # Feature insight
     if df.shape[1] > 50:
@@ -881,6 +1059,7 @@ def auto_tune_model(name, model, X_train, y_train, problem_type):
 
         # RANDOM FOREST
         if "RandomForest" in name:
+            tune_random_forest = get_tune_random_forest()
             return tune_random_forest(X_train, y_train, problem_type)
 
         # LOGISTIC REGRESSION
@@ -931,13 +1110,12 @@ def auto_tune_model(name, model, X_train, y_train, problem_type):
 # GENETIC ALGORITHM FOR TABULAR
 # =====================================================
 def genetic_model_search(X_train, X_test, y_train, y_test, problem_type):
-
-    from models.model_library import CLASSIFICATION_MODELS, REGRESSION_MODELS
+    classification_models, regression_models = get_model_library()
 
     if problem_type == "classification":
-        models = CLASSIFICATION_MODELS
+        models = classification_models
     else:
-        models = REGRESSION_MODELS
+        models = regression_models
 
     best_model = None
     best_score = None
@@ -947,7 +1125,7 @@ def genetic_model_search(X_train, X_test, y_train, y_test, problem_type):
     for name, model in models.items():
         
         if "RandomForest" in name:
-
+            tune_random_forest = get_tune_random_forest()
             best_params = tune_random_forest(X_train, y_train, problem_type)
 
             model.set_params(**best_params)
@@ -1084,28 +1262,36 @@ def generate_explanation_text(problem_type, strength_summary):
 # =====================================================
 # CNN MODEL
 # =====================================================
-class SimpleCNN(nn.Module):
-    def __init__(self, num_classes):
-        super().__init__()
+def build_simple_cnn(num_classes):
+    torch_runtime = get_torch_runtime()
+    nn = torch_runtime["nn"]
+    vision_models = torch_runtime["models"]
 
-        # Load pretrained ResNet18
-        self.model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+    class SimpleCNN(nn.Module):
+        def __init__(self, num_classes):
+            super().__init__()
 
-        # Freeze backbone
-        for param in self.model.parameters():
-            param.requires_grad = False
+            self.model = vision_models.resnet18(
+                weights=vision_models.ResNet18_Weights.DEFAULT
+            )
 
-        for param in self.model.layer4.parameters():
-            param.requires_grad = True
-            
-        # Replace final layer
-        in_features = self.model.fc.in_features
-        self.model.fc = nn.Linear(in_features, num_classes)
+            for param in self.model.parameters():
+                param.requires_grad = False
 
-    def forward(self, x):
-        return self.model(x)
+            for param in self.model.layer4.parameters():
+                param.requires_grad = True
+
+            in_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(in_features, num_classes)
+
+        def forward(self, x):
+            return self.model(x)
+
+    return SimpleCNN(num_classes)
     
+
 def generate_gradcam(model, image_tensor, target_class):
+    torch = get_torch_runtime()["torch"]
 
     model.eval()
     gradients = []
@@ -1594,6 +1780,20 @@ async def auto_train(
     # IMAGE DATASET
     # ==========================================
     if filename.endswith(".zip"):
+        if LIGHTWEIGHT_DEPLOYMENT:
+            return {"error": lightweight_feature_message("Image training")}
+
+        try:
+            torch_runtime = get_torch_runtime()
+        except RuntimeError as exc:
+            return {"error": str(exc)}
+
+        torch = torch_runtime["torch"]
+        nn = torch_runtime["nn"]
+        DataLoader = torch_runtime["DataLoader"]
+        datasets = torch_runtime["datasets"]
+        device = torch_runtime["device"]
+        transforms = torch_runtime["transforms"]
 
         zip_path = os.path.join(UPLOAD_FOLDER, file.filename or "unknown")
         with open(zip_path, "wb") as buffer:
@@ -1629,7 +1829,7 @@ async def auto_train(
 
         loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
-        model = SimpleCNN(len(dataset.classes)).to(DEVICE)
+        model = build_simple_cnn(len(dataset.classes)).to(device)
         criterion = nn.CrossEntropyLoss()
 
         optimizer = torch.optim.Adam(
@@ -1647,7 +1847,7 @@ async def auto_train(
 
             for images, labels in loader:
 
-                images, labels = images.to(DEVICE), labels.to(DEVICE)
+                images, labels = images.to(device), labels.to(device)
 
                 optimizer.zero_grad()
 
@@ -1748,6 +1948,14 @@ async def auto_train(
         df = df.dropna(axis=1, how="all")
         df = df.dropna(axis=0, how="all")
 
+        if LIGHTWEIGHT_DEPLOYMENT and len(df) > MAX_LIGHTWEIGHT_ROWS:
+            return {
+                "error": (
+                    f"Dataset too large for lightweight deployment. Limit is "
+                    f"{MAX_LIGHTWEIGHT_ROWS} rows."
+                )
+            }
+
         numeric_cols = df.select_dtypes(include=["int64","float64"]).columns.tolist()
         categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
 
@@ -1798,6 +2006,10 @@ async def auto_train(
                     numeric_columns.append(col)
 
             if len(numeric_columns) > 0:
+                try:
+                    Prophet = get_prophet_class()
+                except RuntimeError as exc:
+                    return {"error": str(exc)}
 
                 models = {}
 
@@ -1889,13 +2101,13 @@ async def auto_train(
         y = df[target_column]
         update_progress(15, "Feature Engineering", "Generating features...")
         try:
-            X = auto_feature_engineering(X)
+            X = run_auto_feature_engineering(X)
             update_progress(25, "Feature Engineering Done", "Features created")
         except Exception as e:
             return {"error": f"Feature engineering failed: {str(e)}"}
 
         # Detect problem type
-        problem_type = detect_problem_type(df, target_column)
+        problem_type = detect_training_problem_type(df, target_column)
 
         if problem_type == "classification":
             y = LabelEncoder().fit_transform(y)
@@ -1930,12 +2142,19 @@ async def auto_train(
 
         dataset_info = analyze_training_dataset(X, y)
 
-        recommended = recommend_models(dataset_info, problem_type)
+        recommended = recommend_training_models(dataset_info, problem_type)
+
+        if LIGHTWEIGHT_DEPLOYMENT:
+            recommended = [
+                name for name in recommended if name not in LIGHTWEIGHT_BLOCKED_MODELS
+            ]
+
+        classification_models, regression_models = get_model_library()
 
         if problem_type == "classification":
-            base_models = CLASSIFICATION_MODELS
+            base_models = classification_models
         else:
-            base_models = REGRESSION_MODELS
+            base_models = regression_models
 
         models = {}
 
@@ -1951,10 +2170,17 @@ async def auto_train(
 
         # Add transformer if recommended
         if "TabTransformer" in recommended and problem_type == "classification":
-            models["TabTransformer"] = TabTransformer(
-            input_dim=X_train.shape[1],
-            num_classes=len(np.unique(y_train))
-            )
+            try:
+                TabTransformer = get_tab_transformer_class()
+                models["TabTransformer"] = TabTransformer(
+                    input_dim=X_train.shape[1],
+                    num_classes=len(np.unique(y_train))
+                )
+            except RuntimeError as exc:
+                update_progress(log=str(exc))
+
+        if not models:
+            return {"error": "No lightweight-compatible models are available for this dataset."}
 
         results = []
         best_model = None
@@ -1964,7 +2190,8 @@ async def auto_train(
         futures = []
 
         start_time = datetime.now()
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        max_workers = 2 if LIGHTWEIGHT_DEPLOYMENT else 4
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
 
             for name, model in models.items():
                 futures.append(
@@ -2115,7 +2342,7 @@ async def auto_train(
             best_score
         )
         
-        generated_code = generate_training_code(
+        generated_code = generate_training_pipeline_code(
             model_name=type(best_model).__name__,
             feature_columns=X.columns.tolist(),
             problem_type=problem_type,
@@ -2370,13 +2597,25 @@ async def predict(file: UploadFile = File(...)):
 # =====================================================
 @app.post("/predict-image")
 async def predict_image(file: UploadFile = File(...)):
+    if LIGHTWEIGHT_DEPLOYMENT:
+        raise HTTPException(
+            status_code=503,
+            detail=lightweight_feature_message("Image inference"),
+        )
+
     if not os.path.exists(CNN_MODEL_PATH):
         return {"error":"No trained CNN model"}
 
-    checkpoint = torch.load(CNN_MODEL_PATH, map_location=DEVICE)
+    torch_runtime = get_torch_runtime()
+    torch = torch_runtime["torch"]
+    device = torch_runtime["device"]
+    transforms = torch_runtime["transforms"]
+    Image = get_image_module()
+
+    checkpoint = torch.load(CNN_MODEL_PATH, map_location=device)
     classes = checkpoint["classes"]
 
-    model = SimpleCNN(len(classes))
+    model = build_simple_cnn(len(classes)).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -2391,7 +2630,7 @@ async def predict_image(file: UploadFile = File(...)):
     transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
 ])
 
-    img_tensor=transform(image).unsqueeze(0).to(DEVICE)
+    img_tensor=transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
         output=model(img_tensor)
@@ -2406,14 +2645,26 @@ async def predict_image(file: UploadFile = File(...)):
 
 @app.post("/explain-image")
 async def explain_image(file: UploadFile = File(...)):
+    if LIGHTWEIGHT_DEPLOYMENT:
+        raise HTTPException(
+            status_code=503,
+            detail=lightweight_feature_message("Image explanations"),
+        )
 
     if not os.path.exists(CNN_MODEL_PATH):
         return {"error": "No trained CNN model"}
-    
-    checkpoint = torch.load(CNN_MODEL_PATH, map_location=DEVICE)
+
+    torch_runtime = get_torch_runtime()
+    torch = torch_runtime["torch"]
+    device = torch_runtime["device"]
+    transforms = torch_runtime["transforms"]
+    Image = get_image_module()
+    plt = get_matplotlib_pyplot()
+
+    checkpoint = torch.load(CNN_MODEL_PATH, map_location=device)
     classes = checkpoint["classes"]
 
-    model = SimpleCNN(len(classes)).to(DEVICE)
+    model = build_simple_cnn(len(classes)).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -2424,7 +2675,7 @@ async def explain_image(file: UploadFile = File(...)):
         transforms.ToTensor()
     ])
 
-    img_tensor = transform(image).unsqueeze(0).to(DEVICE)
+    img_tensor = transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
         output = model(img_tensor)
@@ -2564,6 +2815,8 @@ async def shap_explain(file: UploadFile = File(...)):
     feature_columns = model_package["feature_columns"]
 
     try:
+        shap = get_shap_module()
+
         # Load input file
         if (file.filename or "").endswith(".csv"):
             df = pd.read_csv(file.file, sep=None, engine="python")
@@ -2603,8 +2856,13 @@ async def shap_explain(file: UploadFile = File(...)):
         )
 
         # Sample explanation (first row)
+        sample_values = (
+            shap_values.values[0].tolist()
+            if hasattr(shap_values, "values")
+            else shap_values[0].tolist()
+        )
         sample_explanation = dict(
-            zip(feature_columns, shap_values.values[0].tolist())
+            zip(feature_columns, sample_values)
         )
 
         return {
@@ -3151,8 +3409,9 @@ async def video_ai(request: Request):
 async def chat_ai(data: dict = Body(...)):
     message = data.get("message", "")
     dataset_info = data.get("dataset_info", "")
+    client = get_openai_client()
 
-    if openai_client:
+    if client:
         prompt = f"""
 User question: {message}
 
@@ -3162,7 +3421,7 @@ Dataset info:
 Answer like a professional ML expert helping inside an AutoML dashboard.
 """
         try:
-            response = openai_client.chat.completions.create(
+            response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {

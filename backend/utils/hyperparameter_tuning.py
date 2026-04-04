@@ -1,11 +1,15 @@
-import optuna
-
 from sklearn.model_selection import cross_val_score
 
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 
 def tune_random_forest(X, y, problem_type):
+    try:
+        import optuna
+    except Exception as exc:
+        raise RuntimeError(
+            "Optuna is not installed. Add it back to enable hyperparameter tuning."
+        ) from exc
 
     def objective(trial):
 
