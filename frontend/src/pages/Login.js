@@ -15,17 +15,18 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const res = await API.post('/login', { email, password });
-      if (res.data.error) {
-        setError(res.data.error);
-      } else {
-        localStorage.setItem("token", res.data.access_token);
-        localStorage.setItem("user_id", res.data.user_id);
-        navigate("/dashboard");
-      }
+      const res = await API.post("/login", {
+        email,
+        password,
+      });
+
+      localStorage.setItem("token", res.data.access_token);
+      localStorage.setItem("user_id", res.data.user_id);
+
+      navigate("/dashboard");
+
     } catch (err) {
-      alert(err.response?.data?.detail || err.message);
-      setError(err.response?.data?.detail || 'Login failed');
+      setError(err.response?.data?.detail || "Login failed");
     } finally {
       setLoading(false);
     }

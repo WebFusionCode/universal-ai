@@ -1377,71 +1377,49 @@ def dataset_quality_score(df):
 
 @app.post("/signup")
 async def signup(user: UserSignup):
-    try:
-        if users_collection is None:
-            raise HTTPException(status_code=400, detail="Database not connected")
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
 
-                        
-        existing = users_collection.find_one({"email": user.email})
+    existing = users_collection.find_one({"email": user.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
 
-        if existing:
-            raise HTTPException(status_code=400, detail="User already exists")
+    hashed_password = hash_password(user.password)
+    user_id = str(uuid.uuid4())
 
-                
-        hashed_password = hash_password(user.password)
-        user_id = str(uuid.uuid4())
+    users_collection.insert_one({
+        "user_id": user_id,
+        "email": user.email,
+        "password": hashed_password,
+        "role": "user"
+    })
 
-        users_collection.insert_one(
-            {
-                "user_id": user_id,
-                "email": user.email,
-                "password": hashed_password,
-                "role": "user",
-                "name": "",
-                "phone": "",
-                "dob": "",
-                "profile_pic": "",
-                "created_at": datetime.utcnow().isoformat(),
-            }
-        )
-
-        track_usage_event(user_id, "signup", {"email": user.email})
-
-        return {"message": "Signup successful", "user_id": user_id}
-
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        print("❌ SIGNUP ERROR:", e)
-        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "message": "Signup successful",
+        "user_id": user_id
+    }
 
 
 @app.post("/login")
 async def login(data: UserLogin):
-    try:
-        if users_collection is None:
-            raise HTTPException(status_code=400, detail="Database not connected")
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
 
-        user = users_collection.find_one({"email": data.email})
+    user = users_collection.find_one({"email": data.email})
 
-        if not user or not verify_password(data.password, user["password"]):
-            raise HTTPException(status_code=400, detail="Invalid credentials")
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
 
-        track_usage_event(user["user_id"], "login")
+    if not verify_password(data.password, user["password"]):
+        raise HTTPException(status_code=400, detail="Wrong password")
 
-        access_token = create_access_token({"sub": user["email"]})
+    access_token = create_access_token({"sub": user["email"]})
 
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user_id": user["user_id"]
-        }
-
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        print("❌ LOGIN ERROR:", e)
-        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "access_token": access_token,
+        "user_id": user["user_id"],
+        "token_type": "bearer"
+    }
 
 
 @app.get("/profile/{user_id}")

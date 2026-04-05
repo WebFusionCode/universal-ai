@@ -18,16 +18,16 @@ export default function Signup() {
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
     setLoading(true);
     try {
-      const res = await API.post("/signup", { email, password });
-      if (res.data.error) {
-        setError(res.data.error);
-      } else {
-        alert("Signup successful");
-        navigate("/login");
-      }
+      await API.post("/signup", {
+        email,
+        password,
+      });
+
+      alert("Signup successful");
+      navigate("/login");
+
     } catch (err) {
-      alert(err.response?.data?.detail || err.message);
-      setError(err.response?.data?.detail || 'Signup failed');
+      setError(err.response?.data?.detail || "Signup failed");
     } finally {
       setLoading(false);
     }
