@@ -6,11 +6,11 @@ import API from '../lib/api';
 const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 
 export default function Train() {
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [preview, setPreview] = useState([]);
   const [columns, setColumns] = useState([]);
   const [targetOptions, setTargetOptions] = useState([]);
-  const [targetColumn, setTargetColumn] = useState('');
+  const [target, setTarget] = useState('');
   const [modelType, setModelType] = useState('Auto');
   const [training, setTraining] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -54,11 +54,11 @@ export default function Train() {
   };
 
   const processFile = async (file) => {
-    setFile(file);
-    setPreview(null);
+    setSelectedFile(file);
+    setPreview([]);
     setColumns([]);
     setTargetOptions([]);
-    setTargetColumn('');
+    setTarget('');
     setResults(null);
     setError('');
     setUploading(true);
@@ -71,14 +71,14 @@ export default function Train() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      console.log("PREVIEW RESPONSE:", res.data); // DEBUG
+      console.log("PREVIEW DATA:", res.data); // MUST SEE THIS
 
       setPreview(res.data.preview || []);
       setColumns(res.data.columns || []);
       setTargetOptions(res.data.suggested_target_columns || []);
 
       if (res.data.suggested_target_columns?.length > 0) {
-        setTargetColumn(res.data.suggested_target_columns[0]);
+        setTarget(res.data.suggested_target_columns[0]);
       }
     } catch (err) {
       console.error("PREVIEW ERROR:", err);
@@ -89,36 +89,15 @@ export default function Train() {
   };
 
   const handleTrain = async () => {
-    if (!file || !targetColumn) { setError('Upload a file and select target column'); return; }
-    setTraining(true);
-    setProgress(0);
-    setResults(null);
-    setError('');
-    setStatusMsg('Initializing...');
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('target_column', targetColumn);
-      formData.append('model_type', modelType);
-      
-      let res;
-      if (file.name.endsWith(".zip")) {
-        res = await API.post('/train-image', formData); // Or whatever the backend endpoint is, we'll try /train first if generic
-      } else {
-        res = await API.post('/train', formData);
-      }
-      if (res.data.error) {
-        setError(res.data.error);
-      } else {
-        setResults(res.data);
-        setProgress(100);
-        setStatusMsg('Training completed!');
-      }
-    } catch (err) {
-      setError('Training failed: ' + (err.response?.data?.detail || err.message));
-    } finally {
-      setTraining(false);
-    }
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+    formData.append("target_column", target);
+
+    const res = await API.post("/train", formData);
+
+    console.log("TRAIN RESULT:", res.data);
+
+    setResults(res.data);
   };
 
   return (
@@ -147,7 +126,7 @@ export default function Train() {
 
         {/* Upload Area */}
         <motion.div variants={fadeUp}
-          className={`border-2 border-dashed p-10 text-center cursor-pointer transition-all duration-300 mb-6 ${file ? 'border-[#B7FF4A]/30 bg-[#B7FF4A]/[.02]' : 'border-white/[.08] hover:border-white/[.15]'}`}
+          className={`border-2 border-dashed p-10 text-center cursor-pointer transition-all duration-300 mb-6 ${selectedFile ? 'border-[#B7FF4A]/30 bg-[#B7FF4A]/[.02]' : 'border-white/[.08] hover:border-white/[.15]'}`}
           onClick={() => fileRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
@@ -159,9 +138,9 @@ export default function Train() {
               <div className="w-6 h-6 border-2 border-[#B7FF4A] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
               <p className="font-mono text-[11px] text-white/40 tracking-wider uppercase">Analyzing dataset...</p>
             </div>
-          ) : file ? (
+          ) : selectedFile ? (
             <div>
-              <p className="font-display text-lg font-bold text-white mb-1">{file.name}</p>
+              <p className="font-display text-lg font-bold text-white mb-1">{selectedFile.name}</p>
               <p className="font-mono text-[10px] text-white/30 tracking-wider uppercase">Click or drag to replace</p>
             </div>
           ) : (
@@ -173,68 +152,53 @@ export default function Train() {
         </motion.div>
 
         {/* Dataset Preview */}
-        <AnimatePresence>
-          {preview?.length > 0 && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-6">
-              <div className="border border-white/[.06]">
-                <div className="px-6 py-4 border-b border-white/[.06] flex items-center gap-4">
-                  <h3 className="font-mono text-[10px] tracking-[0.15em] uppercase text-white/40">Dataset Preview</h3>
-                  <span className="font-mono text-[10px] tracking-wider text-[#B7FF4A] px-2 py-0.5 border border-[#B7FF4A]/20">{preview?.length || 0} rows shown</span>
-                  <span className="font-mono text-[10px] tracking-wider text-[#6AA7FF] px-2 py-0.5 border border-[#6AA7FF]/20">{columns?.length || 0} columns</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-white/[.06]">
-                        {columns?.map((col, i) => (
-                          <th key={i} className="px-4 py-2.5 text-left font-mono text-[10px] text-white/25 tracking-wider uppercase font-normal whitespace-nowrap">{col}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview?.map((row, i) => (
-                        <tr key={i} className="border-b border-white/[.04]">
-                          {columns?.map((col, j) => (
-                            <td key={j} className="px-4 py-2 font-mono text-[11px] text-white/50 whitespace-nowrap">
-                              {row[col] != null ? String(row[col]).substring(0, 30) : '-'}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+        {preview && preview.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-white mb-2">Dataset Preview</h3>
 
-              {/* Target Selection */}
-              <div className="mt-4 border border-white/[.06] p-6 grid grid-cols-2 gap-4">
-                <div>
-                  <label className="font-mono text-[10px] text-white/30 tracking-[0.15em] uppercase mb-3 block">Select Target Column</label>
-                  <select data-testid="target-select" value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)}
-                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#B7FF4A]/40 appearance-none cursor-pointer">
-                    <option value="" className="bg-[#111]">Select target</option>
-                    {targetOptions?.map((col, i) => (
-                      <option key={i} value={col} className="bg-[#111]">{col}</option>
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  {columns.map(col => (
+                    <th key={col} className="text-left text-gray-400">{col}</th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody>
+                {preview.map((row, i) => (
+                  <tr key={i}>
+                    {columns.map(col => (
+                      <td key={col} className="text-gray-300">
+                        {row[col]}
+                      </td>
                     ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="font-mono text-[10px] text-white/30 tracking-[0.15em] uppercase mb-3 block">Model Override</label>
-                  <select data-testid="model-select" value={modelType} onChange={(e) => setModelType(e.target.value)}
-                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#B7FF4A]/40 appearance-none cursor-pointer">
-                    <option value="Auto" className="bg-[#111]">Auto</option>
-                    <option value="RandomForest" className="bg-[#111]">RandomForest</option>
-                    <option value="XGBoost" className="bg-[#111]">XGBoost</option>
-                  </select>
-                </div>
-                <button data-testid="train-btn" onClick={handleTrain} disabled={training || !targetColumn}
-                  className="col-span-2 mt-4 w-full py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-                  {training ? 'Training in progress...' : 'Start Training'}
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {preview && (
+          <div className="mt-6">
+
+            <select onChange={(e) => setTarget(e.target.value)}>
+              <option>Select Target Column</option>
+              {targetOptions.map(col => (
+                <option key={col}>{col}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={handleTrain}
+              className="mt-4 bg-green-600 px-4 py-2 rounded"
+            >
+              Train Model
+            </button>
+
+          </div>
+        )}
 
         {/* Training Progress */}
         <AnimatePresence>

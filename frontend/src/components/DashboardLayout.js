@@ -4,42 +4,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AIChat from './AIChat';
 
 const navItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-  )},
-  { path: '/train', label: 'Train Model', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-  )},
-  { path: '/experiments', label: 'Experiments', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 3h6v7l4 4v1H5v-1l4-4V3z"/><path d="M6 21h12"/></svg>
-  )},
-  { path: '/leaderboard', label: 'Leaderboard', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M6 9H4.5a2.5 2.5 0 010-5H6M18 9h1.5a2.5 2.5 0 000-5H18M4 22h16M18 2H6v7a6 6 0 0012 0V2z"/></svg>
-  )},
-  { path: '/predict', label: 'Predict', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/></svg>
-  )},
-  { path: '/download', label: 'Downloads', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-  )},
-  { path: '/profile', label: 'Profile', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-  )},
-  { path: '/insights', label: 'AI Insights', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 20V10M18 20V4M6 20v-4" /></svg>
-  )},
-  { path: '/explainable-ai', label: 'Explainable AI', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="3"/></svg>
-  )},
-  { path: '/adversarial-testing', label: 'Sec-Test', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2L2 7l10 5 10-5-10-5zm0 10l-10 5 10 5 10-5-10-5z"/></svg>
-  )},
-  { path: '/generative-ai', label: 'Generative Studio', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-  )},
-  { path: '/compiler', label: 'Compiler', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-  )},
+  "Dashboard",
+  "Train Model",
+  "Predict",
+  "Leaderboard",
+  "AI Insights",
+  "Explainable AI",
+  "Downloads",
+  "Sec-Test",
+  "Generative Studio",
+  "Compiler",
+  "Profile"
 ];
 
 export default function DashboardLayout({ children, title }) {
@@ -82,15 +57,24 @@ export default function DashboardLayout({ children, title }) {
         <aside className={`${collapsed ? 'w-0 md:w-14' : 'w-52'} shrink-0 border-r border-white/[.06] flex flex-col py-4 overflow-hidden transition-all duration-300`}>
           <nav className="flex-1 flex flex-col gap-0.5 px-2">
             {navItems.map((item) => {
-              const active = location.pathname === item.path;
+              const staticMap = {
+                "Train Model": "/train",
+                "Downloads": "/download",
+                "Sec-Test": "/adversarial-testing",
+                "Generative Studio": "/generative-ai",
+                "AI Insights": "/insights",
+                "Explainable AI": "/explainable-ai"
+              };
+              const mappedPath = staticMap[item] || `/${item.toLowerCase().replace(/\s/g, '-')}`;
+              const active = location.pathname === mappedPath;
               return (
-                <Link key={item.path} to={item.path} data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
+                <Link key={mappedPath} to={mappedPath} data-testid={`nav-${item.toLowerCase().replace(/\s/g, '-')}`}
                   className={`flex items-center gap-3 px-3 py-2.5 transition-all duration-200 ${active
                     ? 'bg-white/[.05] text-[#B7FF4A] border-l-2 border-[#B7FF4A]'
                     : 'text-white/35 hover:text-white/60 hover:bg-white/[.02] border-l-2 border-transparent'
                   }`}>
-                  <span className="shrink-0">{item.icon}</span>
-                  {!collapsed && <span className="font-mono text-[10px] tracking-[0.1em] uppercase truncate">{item.label}</span>}
+                  <span className="shrink-0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="3"/></svg></span>
+                  {!collapsed && <span className="font-mono text-[10px] tracking-[0.1em] uppercase truncate">{item}</span>}
                 </Link>
               );
             })}
