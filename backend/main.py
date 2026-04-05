@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # ===== DEPLOYMENT SETTINGS =====
 LIGHTWEIGHT_DEPLOYMENT = True   # for Render free tier
@@ -104,7 +105,7 @@ class UserLogin(BaseModel):
                     
 from pymongo import MongoClient
 
-MONGO_URL = os.getenv("MONGO_URL")
+MONGO_URL = os.getenv("MONGO_URL", "mongodb+srv://webwithfusion_db_user:Harsh123@cluster0.fu0kdb2.mongodb.net/?appName=Cluster0")
 
 if not MONGO_URL:
     print("❌ MONGO_URL missing")
@@ -142,7 +143,7 @@ print("✅ App created")
                     
 from pymongo import MongoClient
 
-MONGO_URL = os.getenv("MONGO_URL")
+MONGO_URL = os.getenv("MONGO_URL", "mongodb+srv://webwithfusion_db_user:Harsh123@cluster0.fu0kdb2.mongodb.net/?appName=Cluster0")
 
 if not MONGO_URL:
     print("❌ MONGO_URL missing")
@@ -1378,13 +1379,13 @@ def dataset_quality_score(df):
 async def signup(user: UserSignup):
     try:
         if users_collection is None:
-            return {"error": "Database not connected"}
+            raise HTTPException(status_code=400, detail="Database not connected")
 
                         
         existing = users_collection.find_one({"email": user.email})
 
         if existing:
-            return {"error": "User already exists"}
+            raise HTTPException(status_code=400, detail="User already exists")
 
                 
         hashed_password = hash_password(user.password)
@@ -1408,21 +1409,23 @@ async def signup(user: UserSignup):
 
         return {"message": "Signup successful", "user_id": user_id}
 
+    except HTTPException as he:
+        raise he
     except Exception as e:
         print("❌ SIGNUP ERROR:", e)
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/login")
 async def login(data: UserLogin):
     try:
         if users_collection is None:
-            return {"error": "Database not connected"}
+            raise HTTPException(status_code=400, detail="Database not connected")
 
         user = users_collection.find_one({"email": data.email})
 
         if not user or not verify_password(data.password, user["password"]):
-            return {"error": "Invalid credentials"}
+            raise HTTPException(status_code=400, detail="Invalid credentials")
 
         track_usage_event(user["user_id"], "login")
 
@@ -1430,12 +1433,15 @@ async def login(data: UserLogin):
 
         return {
             "access_token": access_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
+            "user_id": user["user_id"]
         }
 
+    except HTTPException as he:
+        raise he
     except Exception as e:
         print("❌ LOGIN ERROR:", e)
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/profile/{user_id}")

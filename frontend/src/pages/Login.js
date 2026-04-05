@@ -16,12 +16,12 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await API.post('/login', { email, password });
-      if (res.data.access_token) {
-        localStorage.setItem("token", res.data.access_token);
-        navigate("/dashboard");
+      if (res.data.error) {
+        setError(res.data.error);
       } else {
-        alert(res.data.error);
-        setError(res.data.error || 'Login failed');
+        localStorage.setItem("token", res.data.access_token);
+        localStorage.setItem("user_id", res.data.user_id);
+        navigate("/dashboard");
       }
     } catch (err) {
       alert(err.response?.data?.detail || err.message);
