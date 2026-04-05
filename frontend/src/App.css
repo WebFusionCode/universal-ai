@@ -1,0 +1,159 @@
+/* ===== AUTOML X GLOBAL STYLES ===== */
+
+/* Glass panels */
+.glass {
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.glass-light {
+  background: rgba(0,0,0,0.03);
+  border: 1px solid rgba(0,0,0,0.08);
+}
+
+/* Corner bracket button */
+.bracket-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 28px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-decoration: none;
+}
+.bracket-btn::before,
+.bracket-btn::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transition: all 0.3s ease;
+}
+.bracket-btn::before {
+  top: 0; left: 0;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+}
+.bracket-btn::after {
+  bottom: 0; right: 0;
+  border-bottom: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+}
+.bracket-btn:hover::before,
+.bracket-btn:hover::after {
+  width: 100%; height: 100%;
+}
+
+/* Bracket btn dark version */
+.bracket-btn-dark { color: var(--text-dark); }
+.bracket-btn-light { color: var(--text-light); }
+
+/* Primary solid button */
+.btn-primary {
+  background: var(--accent-green);
+  color: #0a0a0a;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 0;
+  padding: 14px 32px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-decoration: none;
+}
+.btn-primary:hover {
+  background: #c8ff73;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: white;
+  border: 1px solid rgba(255,255,255,0.2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 14px 32px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-decoration: none;
+}
+.btn-secondary:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.3);
+}
+
+/* Marquee */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 40s linear infinite;
+}
+
+/* Section transitions */
+.section-dark {
+  background: var(--bg-dark);
+  color: var(--text-light);
+}
+.section-light {
+  background: var(--bg-light);
+  color: var(--text-dark);
+}
+
+/* Text reveal animation */
+@keyframes revealUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.reveal-word {
+  display: inline-block;
+  overflow: hidden;
+}
+.reveal-word > span {
+  display: inline-block;
+  transform: translateY(100%);
+  opacity: 0;
+  animation: revealUp 0.6s ease forwards;
+}
+
+/* Counter */
+.counter-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  opacity: 0.4;
+}
+
+/* Orb background */
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -30px) scale(1.05); }
+  66% { transform: translate(-20px, 20px) scale(0.95); }
+}
+.animate-float { animation: float 20s ease-in-out infinite; }
+.animate-float-delayed { animation: float 25s ease-in-out infinite; animation-delay: -10s; }
+.animate-float-slow { animation: float 30s ease-in-out infinite; animation-delay: -5s; }
+
+/* Particle canvas */
+.particles-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}

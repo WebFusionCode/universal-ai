@@ -1,0 +1,88 @@
+[
+    {
+        "time": "2026-04-04 23:01:37",
+        "timestamp": "2026-04-04 23:01:37",
+        "user_id": "test@automl.com",
+        "best_model": "KNN",
+        "model_name": "KNN",
+        "leaderboard": [
+            {
+                "rank": 1,
+                "model": "KNN",
+                "score": 0.775,
+                "time": 0.125379,
+                "metrics": {
+                    "accuracy": 0.775
+                }
+            },
+            {
+                "rank": 2,
+                "model": "RandomForest",
+                "score": 0.725,
+                "time": 3.804071,
+                "metrics": {
+                    "accuracy": 0.725
+                }
+            },
+            {
+                "rank": 3,
+                "model": "LogisticRegression",
+                "score": 0.7,
+                "time": 0.168724,
+                "metrics": {
+                    "accuracy": 0.7
+                }
+            }
+        ],
+        "model_version": "model_v1.pkl",
+        "problem_type": "classification",
+        "dataset_type": "tabular",
+        "score": 0.775,
+        "rows": 200,
+        "columns": 6,
+        "total_models": 3
+    },
+    {
+        "time": "2026-04-04 23:40:43",
+        "timestamp": "2026-04-04 23:40:43",
+        "user_id": "test@automl.com",
+        "best_model": "KNN",
+        "model_name": "KNN",
+        "leaderboard": [
+            {
+                "rank": 1,
+                "model": "KNN",
+                "score": 0.775,
+                "time": 0.065274,
+                "metrics": {
+                    "accuracy": 0.775
+                }
+            },
+            {
+                "rank": 2,
+                "model": "RandomForest",
+                "score": 0.725,
+                "time": 3.584014,
+                "metrics": {
+                    "accuracy": 0.725
+                }
+            },
+            {
+                "rank": 3,
+                "model": "LogisticRegression",
+                "score": 0.7,
+                "time": 0.092994,
+                "metrics": {
+                    "accuracy": 0.7
+                }
+            }
+        ],
+        "model_version": "model_v2.pkl",
+        "problem_type": "classification",
+        "dataset_type": "tabular",
+        "score": 0.775,
+        "rows": 200,
+        "columns": 6,
+        "total_models": 3
+    }
+]
