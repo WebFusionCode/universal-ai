@@ -17,7 +17,11 @@ export default function Predict() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+
       const res = await API.post("/predict", formData);
+
+      console.log("PREDICT:", res.data);
+
       setResult(res.data);
     } catch (err) {
       setError('Prediction failed: ' + (err.response?.data?.detail || err.message));
@@ -61,32 +65,35 @@ export default function Predict() {
                 {result.predicted_class && <span className="font-mono text-[10px] text-[#FFCC66] tracking-wider border border-[#FFCC66]/20 px-2 py-0.5">Image Inference</span>}
                 <span className="font-mono text-[10px] text-white/25 tracking-wider">{result.predictions?.length || 1} results</span>
               </div>
-              
-              {result.predicted_class ? (
-                <div className="p-10 flex flex-col items-center">
-                  <p className="font-mono text-[10px] text-white/40 tracking-[0.15em] uppercase mb-4">Predicted Class</p>
-                  <p className="font-display text-4xl font-bold text-[#B7FF4A]">{result.predicted_class}</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto max-h-80">
-                  <table className="w-full">
-                    <thead className="sticky top-0 bg-[#0a0a0a]">
-                      <tr className="border-b border-white/[.08]">
-                        <th className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-wider uppercase font-normal">#</th>
-                        <th className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-wider uppercase font-normal">Prediction</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(result.predictions || []).slice(0, 100).map((p, i) => (
-                        <tr key={i} className="border-b border-white/[.04]">
-                          <td className="px-6 py-2.5 font-mono text-[11px] text-white/25">{i + 1}</td>
-                          <td className="px-6 py-2.5 font-mono text-[12px] text-[#B7FF4A]">{typeof p === 'object' ? p.prediction : p}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <div className="p-6 text-white font-mono text-[12px]">
+                {result?.problem_type === "Classification" && (
+                  <div>
+                    {result.predictions.map((p, i) => (
+                      <div key={i}>
+                        Prediction: {p.prediction} | Confidence: {p.confidence}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {result?.problem_type === "Regression" && (
+                  <div>
+                    {result.predictions.map((p, i) => (
+                      <div key={i}>{p}</div>
+                    ))}
+                  </div>
+                )}
+
+                {result?.problem_type?.includes("Time") && (
+                  <pre>{JSON.stringify(result.forecast, null, 2)}</pre>
+                )}
+
+                {result?.predicted_class && (
+                  <div>
+                    Image Prediction: {result.predicted_class}
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

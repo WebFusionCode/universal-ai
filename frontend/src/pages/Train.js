@@ -38,8 +38,23 @@ export default function Train() {
     } catch (e) {}
   }, [training]);
 
-  const handleFileChange = async (selectedFile) => {
-    setFile(selectedFile);
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    await processFile(file);
+  };
+
+  const handleFileInput = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    await processFile(file);
+  };
+
+  const processFile = async (file) => {
+    setFile(file);
     setPreview(null);
     setColumns([]);
     setTargetOptions([]);
@@ -47,29 +62,30 @@ export default function Train() {
     setResults(null);
     setError('');
     setUploading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      const res = await API.post('/preview', formData);
-      setPreview(res.data.preview);
+      const res = await API.post("/preview", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      console.log("PREVIEW RESPONSE:", res.data); // DEBUG
+
+      setPreview(res.data.preview || []);
       setColumns(res.data.columns || []);
       setTargetOptions(res.data.suggested_target_columns || []);
+
       if (res.data.suggested_target_columns?.length > 0) {
         setTargetColumn(res.data.suggested_target_columns[0]);
       }
     } catch (err) {
-      const errMsg = err.response?.data?.detail || err.message;
-      console.error("Preview Bug Details:", err.response || err);
-      setError('Failed to preview: ' + errMsg);
+      console.error("PREVIEW ERROR:", err);
+      setError('Failed to preview: ' + (err.response?.data?.detail || err.message));
     } finally {
       setUploading(false);
     }
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    const f = e.dataTransfer.files[0];
-    if (f) handleFileChange(f);
   };
 
   const handleTrain = async () => {
@@ -137,7 +153,7 @@ export default function Train() {
           onDrop={handleDrop}
           data-testid="upload-area">
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.zip" className="hidden"
-            onChange={(e) => e.target.files[0] && handleFileChange(e.target.files[0])} data-testid="file-input" />
+            onChange={handleFileInput} data-testid="file-input" />
           {uploading ? (
             <div>
               <div className="w-6 h-6 border-2 border-[#B7FF4A] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -158,7 +174,7 @@ export default function Train() {
 
         {/* Dataset Preview */}
         <AnimatePresence>
-          {preview && (
+          {preview?.length > 0 && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-6">
               <div className="border border-white/[.06]">
                 <div className="px-6 py-4 border-b border-white/[.06] flex items-center gap-4">
