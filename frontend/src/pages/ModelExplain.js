@@ -8,6 +8,7 @@ const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 
 export default function ModelExplain() {
   const [modelType, setModelType] = useState('tree');
+  const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [explanation, setExplanation] = useState(null);
   const [error, setError] = useState('');
@@ -20,7 +21,15 @@ export default function ModelExplain() {
     
     // We fetch basic model-explain info first, then simulate fetching SHAP optionally
     try {
-      const res = await API.get('/model-explain', { params: { type: modelType } });
+      let res;
+      if (file) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("type", modelType);
+        res = await API.post("/shap-explain", formData);
+      } else {
+        res = await API.get('/model-explain', { params: { type: modelType } });
+      }
       setExplanation(res.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Explanation failed. Did you train a model first?');
@@ -49,11 +58,15 @@ export default function ModelExplain() {
                 <div>
                   <label className="font-mono text-[10px] text-white/30 tracking-wider uppercase block mb-2">Model Architecture</label>
                   <select value={modelType} onChange={(e) => setModelType(e.target.value)}
-                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#6AA7FF]/40 appearance-none">
+                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#6AA7FF]/40 appearance-none mb-4">
                     <option value="tree" className="bg-[#111]">Tree-based (XGBoost/RF)</option>
                     <option value="linear" className="bg-[#111]">Linear/Logistic</option>
                     <option value="neural" className="bg-[#111]">Neural Network</option>
                   </select>
+
+                  <label className="font-mono text-[10px] text-white/30 tracking-wider uppercase block mb-2">Dataset for SHAP (Optional)</label>
+                  <input type="file" onChange={(e) => setFile(e.target.files[0])}
+                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#6AA7FF]/40" />
                 </div>
 
                 <button type="submit" disabled={loading}

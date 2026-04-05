@@ -17,6 +17,7 @@ import Insights from './pages/Insights';
 import ModelExplain from './pages/ModelExplain';
 import AdversarialTesting from './pages/AdversarialTesting';
 import GenerativeAI from './pages/GenerativeAI';
+import Compiler from './pages/Compiler';
 
 function ProtectedRoute({ children }) {
   const token = localStorage.getItem('token');
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/explainable-ai" element={<ProtectedRoute><ModelExplain /></ProtectedRoute>} />
         <Route path="/adversarial-testing" element={<ProtectedRoute><AdversarialTesting /></ProtectedRoute>} />
         <Route path="/generative-ai" element={<ProtectedRoute><GenerativeAI /></ProtectedRoute>} />
+        <Route path="/compiler" element={<ProtectedRoute><Compiler /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

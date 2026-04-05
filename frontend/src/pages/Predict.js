@@ -7,18 +7,18 @@ const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 
 export default function Predict() {
   const [file, setFile] = useState(null);
-  const [predictions, setPredictions] = useState(null);
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handlePredict = async () => {
     if (!file) { setError('Upload a file first'); return; }
-    setLoading(true); setError(''); setPredictions(null);
+    setLoading(true); setError(''); setResult(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
       const res = await API.post("/predict", formData);
-      setPredictions({ predictions: res.data.predictions, problem_type: res.data.problem_type, num_predictions: res.data.predictions?.length });
+      setResult(res.data);
     } catch (err) {
       setError('Prediction failed: ' + (err.response?.data?.detail || err.message));
     } finally { setLoading(false); }
@@ -37,7 +37,7 @@ export default function Predict() {
           <div className={`border-2 border-dashed p-10 text-center cursor-pointer transition-all duration-300 ${file ? 'border-[#6AA7FF]/30 bg-[#6AA7FF]/[.02]' : 'border-white/[.08] hover:border-white/[.15]'}`}
             onClick={() => document.getElementById('predict-file').click()} data-testid="predict-upload">
             <input id="predict-file" type="file" accept=".csv,.xlsx,.json" className="hidden"
-              onChange={(e) => { setFile(e.target.files[0]); setPredictions(null); setError(''); }} data-testid="predict-file-input" />
+              onChange={(e) => { setFile(e.target.files[0]); setResult(null); setError(''); }} data-testid="predict-file-input" />
             {file ? (
               <div><p className="font-display text-base font-bold text-white">{file.name}</p><p className="font-mono text-[10px] text-white/25 tracking-wider uppercase mt-1">Click to replace</p></div>
             ) : (
@@ -53,31 +53,40 @@ export default function Predict() {
         {error && <div className="mb-6 border border-[#FF5C7A]/20 bg-[#FF5C7A]/5 px-6 py-4 font-mono text-[11px] text-[#FF5C7A]">{error}</div>}
 
         <AnimatePresence>
-          {predictions && (
+          {result && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="border border-white/[.06]">
               <div className="px-6 py-4 border-b border-white/[.06] flex items-center gap-4">
                 <h3 className="font-mono text-[10px] text-white/40 tracking-[0.15em] uppercase">Predictions</h3>
-                <span className="font-mono text-[10px] text-[#5b9ea6] tracking-wider border border-[#5b9ea6]/20 px-2 py-0.5">{predictions.problem_type}</span>
-                <span className="font-mono text-[10px] text-white/25 tracking-wider">{predictions.num_predictions} results</span>
+                {result.problem_type && <span className="font-mono text-[10px] text-[#5b9ea6] tracking-wider border border-[#5b9ea6]/20 px-2 py-0.5">{result.problem_type}</span>}
+                {result.predicted_class && <span className="font-mono text-[10px] text-[#FFCC66] tracking-wider border border-[#FFCC66]/20 px-2 py-0.5">Image Inference</span>}
+                <span className="font-mono text-[10px] text-white/25 tracking-wider">{result.predictions?.length || 1} results</span>
               </div>
-              <div className="overflow-x-auto max-h-80">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-[#0a0a0a]">
-                    <tr className="border-b border-white/[.08]">
-                      <th className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-wider uppercase font-normal">#</th>
-                      <th className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-wider uppercase font-normal">Prediction</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(predictions.predictions || []).slice(0, 100).map((p, i) => (
-                      <tr key={i} className="border-b border-white/[.04]">
-                        <td className="px-6 py-2.5 font-mono text-[11px] text-white/25">{i + 1}</td>
-                        <td className="px-6 py-2.5 font-mono text-[12px] text-[#B7FF4A]">{typeof p === 'object' ? p.prediction : p}</td>
+              
+              {result.predicted_class ? (
+                <div className="p-10 flex flex-col items-center">
+                  <p className="font-mono text-[10px] text-white/40 tracking-[0.15em] uppercase mb-4">Predicted Class</p>
+                  <p className="font-display text-4xl font-bold text-[#B7FF4A]">{result.predicted_class}</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto max-h-80">
+                  <table className="w-full">
+                    <thead className="sticky top-0 bg-[#0a0a0a]">
+                      <tr className="border-b border-white/[.08]">
+                        <th className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-wider uppercase font-normal">#</th>
+                        <th className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-wider uppercase font-normal">Prediction</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {(result.predictions || []).slice(0, 100).map((p, i) => (
+                        <tr key={i} className="border-b border-white/[.04]">
+                          <td className="px-6 py-2.5 font-mono text-[11px] text-white/25">{i + 1}</td>
+                          <td className="px-6 py-2.5 font-mono text-[12px] text-[#B7FF4A]">{typeof p === 'object' ? p.prediction : p}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

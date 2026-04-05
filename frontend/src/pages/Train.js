@@ -8,6 +8,8 @@ const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 export default function Train() {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [columns, setColumns] = useState([]);
+  const [targetOptions, setTargetOptions] = useState([]);
   const [targetColumn, setTargetColumn] = useState('');
   const [modelType, setModelType] = useState('Auto');
   const [training, setTraining] = useState(false);
@@ -36,9 +38,11 @@ export default function Train() {
     } catch (e) {}
   }, [training]);
 
-  const handleFileSelect = async (selectedFile) => {
+  const handleFileChange = async (selectedFile) => {
     setFile(selectedFile);
     setPreview(null);
+    setColumns([]);
+    setTargetOptions([]);
     setTargetColumn('');
     setResults(null);
     setError('');
@@ -47,7 +51,9 @@ export default function Train() {
       const formData = new FormData();
       formData.append('file', selectedFile);
       const res = await API.post('/preview', formData);
-      setPreview(res.data);
+      setPreview(res.data.preview);
+      setColumns(res.data.columns || []);
+      setTargetOptions(res.data.suggested_target_columns || []);
       if (res.data.suggested_target_columns?.length > 0) {
         setTargetColumn(res.data.suggested_target_columns[0]);
       }
@@ -63,7 +69,7 @@ export default function Train() {
   const handleDrop = (e) => {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
-    if (f) handleFileSelect(f);
+    if (f) handleFileChange(f);
   };
 
   const handleTrain = async () => {
@@ -79,7 +85,12 @@ export default function Train() {
       formData.append('target_column', targetColumn);
       formData.append('model_type', modelType);
       
-      const res = await API.post('/train', formData);
+      let res;
+      if (file.name.endsWith(".zip")) {
+        res = await API.post('/train-image', formData); // Or whatever the backend endpoint is, we'll try /train first if generic
+      } else {
+        res = await API.post('/train', formData);
+      }
       if (res.data.error) {
         setError(res.data.error);
       } else {
@@ -125,8 +136,8 @@ export default function Train() {
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
           data-testid="upload-area">
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.json" className="hidden"
-            onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])} data-testid="file-input" />
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.zip" className="hidden"
+            onChange={(e) => e.target.files[0] && handleFileChange(e.target.files[0])} data-testid="file-input" />
           {uploading ? (
             <div>
               <div className="w-6 h-6 border-2 border-[#B7FF4A] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -152,22 +163,22 @@ export default function Train() {
               <div className="border border-white/[.06]">
                 <div className="px-6 py-4 border-b border-white/[.06] flex items-center gap-4">
                   <h3 className="font-mono text-[10px] tracking-[0.15em] uppercase text-white/40">Dataset Preview</h3>
-                  <span className="font-mono text-[10px] tracking-wider text-[#B7FF4A] px-2 py-0.5 border border-[#B7FF4A]/20">{preview.rows} rows</span>
-                  <span className="font-mono text-[10px] tracking-wider text-[#6AA7FF] px-2 py-0.5 border border-[#6AA7FF]/20">{preview.columns?.length} columns</span>
+                  <span className="font-mono text-[10px] tracking-wider text-[#B7FF4A] px-2 py-0.5 border border-[#B7FF4A]/20">{preview?.length || 0} rows shown</span>
+                  <span className="font-mono text-[10px] tracking-wider text-[#6AA7FF] px-2 py-0.5 border border-[#6AA7FF]/20">{columns?.length || 0} columns</span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-white/[.06]">
-                        {preview.columns?.map((col, i) => (
+                        {columns?.map((col, i) => (
                           <th key={i} className="px-4 py-2.5 text-left font-mono text-[10px] text-white/25 tracking-wider uppercase font-normal whitespace-nowrap">{col}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {preview.preview?.map((row, i) => (
+                      {preview?.map((row, i) => (
                         <tr key={i} className="border-b border-white/[.04]">
-                          {preview.columns?.map((col, j) => (
+                          {columns?.map((col, j) => (
                             <td key={j} className="px-4 py-2 font-mono text-[11px] text-white/50 whitespace-nowrap">
                               {row[col] != null ? String(row[col]).substring(0, 30) : '-'}
                             </td>
@@ -185,8 +196,8 @@ export default function Train() {
                   <label className="font-mono text-[10px] text-white/30 tracking-[0.15em] uppercase mb-3 block">Select Target Column</label>
                   <select data-testid="target-select" value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)}
                     className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#B7FF4A]/40 appearance-none cursor-pointer">
-                    <option value="" className="bg-[#111]">Choose a column...</option>
-                    {preview.columns?.map((col, i) => (
+                    <option value="" className="bg-[#111]">Select target</option>
+                    {targetOptions?.map((col, i) => (
                       <option key={i} value={col} className="bg-[#111]">{col}</option>
                     ))}
                   </select>

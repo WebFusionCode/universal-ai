@@ -20,11 +20,13 @@ export default function GenerativeAI() {
     setResult(null);
     setError('');
     try {
-      let endpoint = '';
-      if (activeTab === 'image') endpoint = '/api/generate-image';
-      else if (activeTab === 'audio') endpoint = '/api/text-to-speech';
-      else if (activeTab === 'video') endpoint = '/api/video-ai';
+      if (activeTab === 'audio' || activeTab === 'video') {
+        setResult({ message: "Coming soon" });
+        setLoading(false);
+        return;
+      }
 
+      const endpoint = '/generate-image';
       const res = await API.post(endpoint, { prompt });
       setResult(res.data);
     } catch (err) {
@@ -107,7 +109,13 @@ export default function GenerativeAI() {
                     <video controls src={result.video_url} className="max-w-full max-h-[500px] border border-white/10" />
                   )}
                   
-                  {(!result.image_url && !result.base64_data && !result.audio_url && !result.video_url && result.message) && (
+                  {activeTab !== 'image' && result.message === "Coming soon" && (
+                    <div className="flex flex-col items-center justify-center opacity-50">
+                      <Wand2 className="w-12 h-12 mb-4 text-white/50" />
+                      <p className="uppercase tracking-[0.2em] font-mono text-[11px] text-white">Feature Coming Soon</p>
+                    </div>
+                  )}
+                  {(!result.image_url && !result.base64_data && !result.audio_url && !result.video_url && result.message && result.message !== "Coming soon") && (
                     <p className="font-mono text-[12px] text-white/50">{result.message}</p>
                   )}
                 </div>

@@ -33,16 +33,15 @@ export default function Download() {
         {/* Downloads */}
         <motion.div variants={fadeUp} className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
           {[
-            { label: 'Best Model', sub: 'Download .pkl file', icon: '01', path: '/api/download-model' },
-            { label: 'Python Pipeline', sub: 'Generated .py code', icon: '02', path: '/api/download-code/python' },
-            { label: 'Jupyter Notebook', sub: 'Generated .ipynb', icon: '03', path: '/api/download-code/notebook' },
+            { label: 'Best Model', sub: 'Download .pkl file', icon: '01', path: '/download-model' },
+            { label: 'Python Pipeline', sub: 'Generated .py code', icon: '02', path: '/download-code/python' },
+            { label: 'Jupyter Notebook', sub: 'Generated .ipynb', icon: '03', path: '/download-code/notebook' },
           ].map((d, i) => (
-            <div key={i} className="border border-white/[.06] p-6 cursor-pointer hover:border-white/[.15] hover:bg-white/[.02] transition-all duration-300"
-              onClick={() => window.open(`${backendUrl}${d.path}`, '_blank')}>
+            <a key={i} href={`${backendUrl}${d.path}`} download className="border border-white/[.06] p-6 block hover:border-white/[.15] hover:bg-white/[.02] transition-all duration-300">
               <p className="font-mono text-[40px] font-bold text-white/[.04] mb-3">{d.icon}</p>
               <h3 className="font-display text-sm font-bold uppercase tracking-tight text-white mb-1">{d.label}</h3>
               <p className="font-mono text-[10px] text-white/30 tracking-wider">{d.sub}</p>
-            </div>
+            </a>
           ))}
         </motion.div>
 
