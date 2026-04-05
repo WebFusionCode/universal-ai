@@ -9,21 +9,23 @@ const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 export default function AdversarialTesting() {
   const [modelType, setModelType] = useState('classification');
   const [attackType, setAttackType] = useState('fgsm');
+  const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState(null);
+  const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
   const handleTest = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setResults(null);
-    setError('');
+    if (!file) { setError('Upload a model/data file first'); setLoading(false); return; }
     try {
-      const res = await API.post('/api/adversarial-test', {
-        model_type: modelType,
-        attack_type: attackType
-      });
-      setResults(res.data);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("model_type", modelType);
+      formData.append("attack_type", attackType);
+
+      const res = await API.post('/adversarial-test', formData);
+      setData(res.data.preview || res.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Adversarial scan failed or model missing.');
     } finally {
@@ -46,6 +48,12 @@ export default function AdversarialTesting() {
             <h3 className="font-mono text-[11px] text-white/40 tracking-[0.15em] uppercase border-b border-white/[.06] pb-4 mb-6">Attack Vector</h3>
             
             <form onSubmit={handleTest} className="space-y-6">
+              <div>
+                <label className="font-mono text-[10px] text-white/30 tracking-wider uppercase block mb-2">Upload File</label>
+                <input type="file" onChange={(e) => setFile(e.target.files[0])}
+                  className="w-full text-white font-mono text-[12px] bg-white/[.03] p-2" />
+              </div>
+
               <div>
                 <label className="font-mono text-[10px] text-white/30 tracking-wider uppercase block mb-2">Model Target</label>
                 <select value={modelType} onChange={(e) => setModelType(e.target.value)}
@@ -86,7 +94,7 @@ export default function AdversarialTesting() {
             </div>
             
             <div className="p-6 flex-1 text-white/60 font-mono text-[12px] leading-relaxed">
-              {!results && !loading && (
+              {!data && !loading && (
                 <div className="h-full flex flex-col items-center justify-center opacity-30">
                   <ShieldAlert className="w-12 h-12 mb-4" />
                   <p className="uppercase tracking-[0.1em] text-[10px]">Awaiting payload injection</p>
@@ -101,24 +109,24 @@ export default function AdversarialTesting() {
               )}
 
               <AnimatePresence>
-                {results && !loading && (
+                {data && !loading && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                     <p className="text-[#B7FF4A]">&gt; ATTACK COMPLETE</p>
                     
                     <div className="grid grid-cols-2 gap-4 mt-8">
                       <div className="border border-white/[.06] p-4 bg-white/[.02]">
                         <p className="text-[10px] text-white/30 tracking-wider mb-2">Original Accuracy</p>
-                        <p className="text-2xl text-white">{(results.original_accuracy || 0).toFixed(2)}%</p>
+                        <p className="text-2xl text-white">{(data.original_accuracy || 0).toFixed(2)}%</p>
                       </div>
                       <div className="border border-[#FF5C7A]/20 p-4 bg-[#FF5C7A]/5">
                         <p className="text-[10px] text-[#FF5C7A]/60 tracking-wider mb-2">Degraded Accuracy</p>
-                        <p className="text-2xl text-[#FF5C7A]">{(results.degraded_accuracy || 0).toFixed(2)}%</p>
+                        <p className="text-2xl text-[#FF5C7A]">{(data.degraded_accuracy || 0).toFixed(2)}%</p>
                       </div>
                     </div>
 
                     <div className="mt-6 border border-white/[.06] p-4">
                       <p className="text-[10px] text-white/30 tracking-wider mb-2">Vulnerability Assessment</p>
-                      <p className="text-white/70">{results.vulnerability_report || 'Model is reasonably robust against this specific attack vector, though standard deviations indicate slight vulnerability bounds.'}</p>
+                      <p className="text-white/70">{data.vulnerability_report || 'Model is reasonably robust against this specific attack vector, though standard deviations indicate slight vulnerability bounds.'}</p>
                     </div>
                   </motion.div>
                 )}

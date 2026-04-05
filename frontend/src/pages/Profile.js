@@ -15,7 +15,7 @@ export default function Profile() {
   const load = useCallback(async () => {
     if (!userId) return;
     try {
-      const res = await API.get(`/api/profile/${userId}`);
+      const res = await API.get(`/profile/${userId}`);
       setProfile({ name: res.data.name || '', phone: res.data.phone || '', dob: res.data.dob || '' });
     } catch (e) {}
   }, [userId]);
@@ -25,7 +25,7 @@ export default function Profile() {
   const handleSave = async () => {
     setSaving(true); setSaved(false);
     try {
-      await API.post('/api/update-profile', { user_id: userId, ...profile });
+      await API.post('/update-profile', { user_id: userId, ...profile });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {} finally { setSaving(false); }

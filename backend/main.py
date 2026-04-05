@@ -57,7 +57,7 @@ if not os.path.exists(EXPERIMENTS_PATH):
     with open(EXPERIMENTS_PATH, "w") as f:
         f.write("[]")
 
-SECRET_KEY = "mysecretkey123"
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback_secret")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -3249,3 +3249,7 @@ Answer like a professional ML expert helping inside an AutoML dashboard.
 @app.get("/")
 def home():
     return {"status": "Backend is LIVE 🚀", "message": "AutoML API running"}
+
+@app.post("/download-training-script")
+def download_script():
+    return FileResponse("generated_pipeline.py")

@@ -14,7 +14,7 @@ export default function Insights() {
   useEffect(() => {
     const fetchInsights = async () => {
       try {
-        const res = await API.get('/api/insights');
+        const res = await API.get('/insights');
         setData(res.data);
       } catch (err) {
         setError('Failed to fetch AI insights. Train a model first.');

@@ -10,7 +10,7 @@ export default function Leaderboard() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    try { const res = await API.get('/api/leaderboard'); setData(res.data); } catch (e) {} finally { setLoading(false); }
+    try { const res = await API.get('/leaderboard'); setData(res.data); } catch (e) {} finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);

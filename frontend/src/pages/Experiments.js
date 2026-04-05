@@ -11,7 +11,7 @@ export default function Experiments() {
 
   const load = useCallback(async () => {
     try {
-      const res = await API.get('/api/experiments');
+      const res = await API.get('/experiments');
       setExperiments(res.data.experiments || []);
     } catch (e) {} finally { setLoading(false); }
   }, []);

@@ -15,10 +15,10 @@ export default function Predict() {
     if (!file) { setError('Upload a file first'); return; }
     setLoading(true); setError(''); setPredictions(null);
     try {
-      const fd = new FormData(); fd.append('file', file);
-      const res = await API.post('/api/predict', fd);
-      if (res.data.error) setError(res.data.error);
-      else setPredictions(res.data);
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await API.post("/predict", formData);
+      setPredictions({ predictions: res.data.predictions, problem_type: res.data.problem_type, num_predictions: res.data.predictions?.length });
     } catch (err) {
       setError('Prediction failed: ' + (err.response?.data?.detail || err.message));
     } finally { setLoading(false); }

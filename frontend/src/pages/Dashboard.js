@@ -26,8 +26,8 @@ export default function Dashboard() {
   const loadData = useCallback(async () => {
     try {
       const [expRes, insRes] = await Promise.all([
-        API.get('/api/experiments').catch(() => ({ data: { experiments: [] } })),
-        API.get('/api/insights').catch(() => ({ data: {} })),
+        API.get('/experiments').catch(() => ({ data: { experiments: [] } })),
+        API.get('/insights').catch(() => ({ data: {} })),
       ]);
       const exps = expRes.data.experiments || [];
       setRecent(exps.slice(0, 5));

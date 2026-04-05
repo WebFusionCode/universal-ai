@@ -9,6 +9,7 @@ export default function Train() {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [targetColumn, setTargetColumn] = useState('');
+  const [modelType, setModelType] = useState('Auto');
   const [training, setTraining] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState('');
@@ -21,14 +22,12 @@ export default function Train() {
 
   useEffect(() => {
     if (!training) return;
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
-    const wsUrl = backendUrl.replace(/^http/, 'ws') + '/api/ws/progress';
     try {
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket("wss://automl-x.onrender.com/ws/progress");
       wsRef.current = ws;
-      ws.onmessage = (evt) => {
+      ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(evt.data);
+          const data = JSON.parse(event.data);
           setProgress(data.progress || 0);
           setStatusMsg(data.message || data.status || '');
         } catch (e) {}
@@ -45,9 +44,9 @@ export default function Train() {
     setError('');
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', selectedFile);
-      const res = await API.post('/api/preview', fd);
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      const res = await API.post('/preview', formData);
       setPreview(res.data);
       if (res.data.suggested_target_columns?.length > 0) {
         setTargetColumn(res.data.suggested_target_columns[0]);
@@ -75,10 +74,12 @@ export default function Train() {
     setError('');
     setStatusMsg('Initializing...');
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('target_column', targetColumn);
-      const res = await API.post('/api/train', fd);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('target_column', targetColumn);
+      formData.append('model_type', modelType);
+      
+      const res = await API.post('/train', formData);
       if (res.data.error) {
         setError(res.data.error);
       } else {
@@ -179,17 +180,28 @@ export default function Train() {
               </div>
 
               {/* Target Selection */}
-              <div className="mt-4 border border-white/[.06] p-6">
-                <label className="font-mono text-[10px] text-white/30 tracking-[0.15em] uppercase mb-3 block">Select Target Column</label>
-                <select data-testid="target-select" value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#B7FF4A]/40 appearance-none cursor-pointer">
-                  <option value="" className="bg-[#111]">Choose a column...</option>
-                  {preview.columns?.map((col, i) => (
-                    <option key={i} value={col} className="bg-[#111]">{col}</option>
-                  ))}
-                </select>
+              <div className="mt-4 border border-white/[.06] p-6 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="font-mono text-[10px] text-white/30 tracking-[0.15em] uppercase mb-3 block">Select Target Column</label>
+                  <select data-testid="target-select" value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)}
+                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#B7FF4A]/40 appearance-none cursor-pointer">
+                    <option value="" className="bg-[#111]">Choose a column...</option>
+                    {preview.columns?.map((col, i) => (
+                      <option key={i} value={col} className="bg-[#111]">{col}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-mono text-[10px] text-white/30 tracking-[0.15em] uppercase mb-3 block">Model Override</label>
+                  <select data-testid="model-select" value={modelType} onChange={(e) => setModelType(e.target.value)}
+                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#B7FF4A]/40 appearance-none cursor-pointer">
+                    <option value="Auto" className="bg-[#111]">Auto</option>
+                    <option value="RandomForest" className="bg-[#111]">RandomForest</option>
+                    <option value="XGBoost" className="bg-[#111]">XGBoost</option>
+                  </select>
+                </div>
                 <button data-testid="train-btn" onClick={handleTrain} disabled={training || !targetColumn}
-                  className="mt-4 w-full py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                  className="col-span-2 mt-4 w-full py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                   {training ? 'Training in progress...' : 'Start Training'}
                 </button>
               </div>

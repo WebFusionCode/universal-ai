@@ -20,7 +20,7 @@ export default function ModelExplain() {
     
     // We fetch basic model-explain info first, then simulate fetching SHAP optionally
     try {
-      const res = await API.get('/api/model-explain', { params: { type: modelType } });
+      const res = await API.get('/model-explain', { params: { type: modelType } });
       setExplanation(res.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Explanation failed. Did you train a model first?');

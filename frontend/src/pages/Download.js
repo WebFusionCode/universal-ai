@@ -13,8 +13,8 @@ export default function Download() {
   useEffect(() => {
     const load = async () => {
       const [r, e] = await Promise.all([
-        API.get('/api/training-report').catch(() => ({ data: {} })),
-        API.get('/api/model-explain').catch(() => ({ data: {} })),
+        API.get('/training-report').catch(() => ({ data: {} })),
+        API.get('/model-explain').catch(() => ({ data: {} })),
       ]);
       if (!r.data.error) setReport(r.data);
       if (!e.data.error) setExplain(e.data);
