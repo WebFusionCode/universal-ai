@@ -53,7 +53,9 @@ export default function Train() {
         setTargetColumn(res.data.suggested_target_columns[0]);
       }
     } catch (err) {
-      setError('Failed to preview: ' + (err.response?.data?.detail || err.message));
+      const errMsg = err.response?.data?.detail || err.message;
+      console.error("Preview Bug Details:", err.response || err);
+      setError('Failed to preview: ' + errMsg);
     } finally {
       setUploading(false);
     }
