@@ -20,14 +20,14 @@ export default function Login() {
         return;
       }
 
-      localStorage.setItem("token", res.data.token);
+      localStorage.setItem("token", res.data.access_token);
       localStorage.setItem("user_id", res.data.user_id);
       localStorage.setItem("user_email", res.data.email || email);
       localStorage.setItem("user_role", res.data.role || "user");
       navigate("/dashboard");
     } catch (err) {
       console.error(err);
-      alert("Login failed");
+      alert(err.response?.data?.detail || "Login failed");
     }
   };
 

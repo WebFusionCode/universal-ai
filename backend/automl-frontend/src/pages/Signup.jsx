@@ -24,7 +24,7 @@ export default function Signup() {
       navigate("/login");
     } catch (err) {
       console.error(err);
-      alert("Signup failed");
+      alert(err.response?.data?.detail || "Signup failed");
     }
   };
 
