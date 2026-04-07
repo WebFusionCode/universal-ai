@@ -90,11 +90,10 @@ export default function Chatbot() {
             {messages.map((msg, index) => (
               <div
                 key={`${msg.sender}-${index}`}
-                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                  msg.sender === "user"
+                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${msg.sender === "user"
                     ? "self-end bg-cyan-400 text-black"
                     : "self-start bg-white/5 text-slate-100"
-                }`}
+                  }`}
               >
                 {msg.text}
               </div>
