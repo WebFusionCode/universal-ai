@@ -20,41 +20,70 @@ function StatCard({ label, value, num, color }) {
 }
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({ experiments: 0, bestScore: '-', bestModel: '-' });
-  const [recent, setRecent] = useState([]);
+  const [dashboard, setDashboard] = useState({
+    total_experiments: 0,
+    best_score: null,
+    best_model: null,
+    recent: []
+  });
 
-  const loadData = useCallback(async () => {
+  const loadDashboard = async () => {
     try {
-      const [expRes, insRes] = await Promise.all([
-        API.get('/experiments').catch(() => ({ data: { experiments: [] } })),
-        API.get('/api/insights').catch(() => ({ data: {} })),
-      ]);
-      const exps = expRes.data.experiments || [];
-      setRecent(exps.slice(0, 5));
-      setStats({
-        experiments: exps.length,
-        bestScore: insRes.data.best_score != null ? insRes.data.best_score.toFixed(4) : '-',
-        bestModel: insRes.data.best_model || '-',
-      });
-    } catch (e) { console.error(e); }
-  }, []);
+      const res = await API.get("/dashboard");
+      setDashboard(res.data);
+    } catch (err) {
+      console.error("Dashboard fetch failed", err);
+    }
+  };
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadDashboard();
+    const interval = setInterval(() => {
+      loadDashboard();
+    }, 3000); // every 3 seconds
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <DashboardLayout title="Overview">
       <motion.div initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.06 } } }}>
         <motion.div variants={fadeUp} className="mb-8">
-          <h1 className="font-display text-2xl font-bold uppercase tracking-tight">Dashboard</h1>
+          <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-white">Dashboard</h1>
           <p className="font-mono text-[11px] text-white/30 tracking-wider uppercase mt-1">Your ML workspace overview</p>
         </motion.div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-          <StatCard label="Total Experiments" value={stats.experiments} num="01" color="#6AA7FF" />
-          <StatCard label="Best Score" value={stats.bestScore} num="02" color="#B7FF4A" />
-          <StatCard label="Best Model" value={stats.bestModel} num="03" color="#FFCC66" />
-          <StatCard label="Status" value="Ready" num="04" color="#5b9ea6" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
+          <StatCard 
+            label="Total Experiments" 
+            value={dashboard.total_experiments} 
+            num="01" 
+            color="#6AA7FF" 
+          />
+          <StatCard 
+            label="Best Score" 
+            value={dashboard.best_score != null ? dashboard.best_score.toFixed(4) : "-"} 
+            num="02" 
+            color="#B7FF4A" 
+          />
+          <StatCard 
+            label="Best Loss" 
+            value={dashboard.best_loss != null ? dashboard.best_loss.toFixed(4) : "-"} 
+            num="03" 
+            color="#FF6B6B" 
+          />
+          <StatCard 
+            label="Best Model" 
+            value={dashboard.best_model || "-"} 
+            num="04" 
+            color="#FFCC66" 
+          />
+          <StatCard 
+            label="Status" 
+            value={dashboard.total_experiments > 0 ? "Active" : "Ready"} 
+            num="05" 
+            color="#5b9ea6" 
+          />
         </div>
 
         {/* Quick Actions */}
@@ -80,31 +109,27 @@ export default function Dashboard() {
             <h3 className="font-mono text-[10px] tracking-[0.15em] uppercase text-white/40">Recent Experiments</h3>
             <Link to="/experiments" className="font-mono text-[10px] tracking-[0.12em] uppercase text-[#B7FF4A] hover:text-[#c8ff73] transition-colors">View All</Link>
           </div>
-          {recent.length === 0 ? (
+          {dashboard.recent.length === 0 ? (
             <div className="p-10 text-center">
-              <p className="font-mono text-[11px] text-white/25 tracking-wider uppercase">No experiments yet. Train your first model.</p>
+              <p className="font-mono text-[11px] text-white/25 tracking-wider uppercase">No experiments yet</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/[.06]">
-                    {['Model', 'Score', 'Type', 'Time'].map(h => (
-                      <th key={h} className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-[0.15em] uppercase font-normal">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((exp, i) => (
-                    <tr key={i} className="border-b border-white/[.04] hover:bg-white/[.02] transition-colors">
-                      <td className="px-6 py-3 font-mono text-[12px] text-white/70">{exp.best_model || exp.model_name || '-'}</td>
-                      <td className="px-6 py-3 font-mono text-[12px] text-[#B7FF4A]">{exp.score != null ? Number(exp.score).toFixed(4) : '-'}</td>
-                      <td className="px-6 py-3 font-mono text-[11px] text-white/40">{exp.problem_type || '-'}</td>
-                      <td className="px-6 py-3 font-mono text-[10px] text-white/25">{exp.time || exp.timestamp || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="overflow-x-auto px-6 py-2">
+              {[...dashboard.recent]
+                .sort((a, b) => new Date(b.timestamp || b.created_at) - new Date(a.timestamp || a.created_at))
+                .map((exp, i) => (
+                  <div key={i} className="flex justify-between items-center py-3 border-b border-white/10 hover:bg-white/[0.02] transition-colors last:border-0">
+                    <div className="flex flex-col">
+                      <span className="font-mono text-[12px] text-white/70">{exp.best_model || exp.model_name || '-'}</span>
+                      <span className="font-mono text-[10px] text-white/20 uppercase">
+                        {exp.timestamp ? new Date(exp.timestamp).toLocaleString() : 'Recent'}
+                      </span>
+                    </div>
+                    <span className="font-mono text-[13px] font-bold text-[#B7FF4A]">
+                      {typeof exp.score === 'number' ? exp.score.toFixed(4) : '-'}
+                    </span>
+                  </div>
+                ))}
             </div>
           )}
         </motion.div>

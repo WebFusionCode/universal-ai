@@ -12,6 +12,7 @@ import random
 import shutil
 import uuid
 import zipfile
+from google import genai
 
 try:
     from dotenv import load_dotenv
@@ -25,6 +26,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFil
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 import joblib
 from jose import JWTError, jwt
 import numpy as np
@@ -47,8 +49,10 @@ EXPERIMENTS_PATH = os.path.join(EXPERIMENTS_DIR, "experiments.json")
 
 # ===== MODEL PATHS =====
 MODEL_DIR = "models"
-MODEL_PATH = os.path.join(MODEL_DIR, "best_model.pkl")
-CNN_MODEL_PATH = os.path.join(MODEL_DIR, "cnn_model.pth")
+TABULAR_MODEL_PATH = os.path.join(MODEL_DIR, "tabular_model.pkl")
+TIME_SERIES_MODEL_PATH = os.path.join(MODEL_DIR, "time_series.pkl")
+IMAGE_MODEL_PATH = os.path.join(MODEL_DIR, "cnn_model.pth")
+LAST_MODEL_TYPE_PATH = os.path.join(MODEL_DIR, "last_model.txt")
 LEADERBOARD_PATH = os.path.join(MODEL_DIR, "leaderboard.pkl")
 TRAINING_REPORT_PATH = os.path.join(MODEL_DIR, "training_report.pkl")
 
@@ -145,6 +149,104 @@ if not MONGO_URL:
 else:
     print("✅ MONGO_URL found")
 
+# Initialize Gemini
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_API_KEY:
+    print(f"📡 Configuring Gemini with Key: {GEMINI_API_KEY[:6]}...{GEMINI_API_KEY[-4:]}")
+    # New SDK Style (Modern V1)
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1'})
+    print("✅ Gemini AI Initialized (Modern V1 - Gemini 2.0)")
+else:
+    print("⚠️ GEMINI_API_KEY not found in .env")
+    gemini_client = None
+
+def safe_extract_text(response):
+    """Safely extract text from Gemini response object."""
+    try:
+        if response.text:
+            return response.text
+        return "No text response generated."
+    except Exception:
+        return "AI response parsing failed."
+
+def call_gemini_safely(prompt, original_query=""):
+    """
+    Robust AI caller with:
+    1. Primary (2.0 Flash)
+    2. 429 Retry (5s sleep)
+    3. Fallback (1.5 Flash)
+    4. Safe String Fallback
+    """
+    if not gemini_client:
+        return "Gemini AI not configured."
+
+    import time
+    
+    # Attempt 1: Gemini 2.0
+    try:
+        response = gemini_client.models.generate_content(
+            model="models/gemini-2.0-flash",
+            contents=prompt
+        )
+        return safe_extract_text(response)
+    
+    except Exception as e:
+        err_msg = str(e).lower()
+        print(f"⚠️ Gemini 2.0 Failed: {err_msg}")
+        
+        # Scenario: Rate Limit (429) -> Retry
+        if "429" in err_msg:
+            print("⏳ Rate limited. Retrying in 5 seconds...")
+            time.sleep(5)
+            try:
+                response = gemini_client.models.generate_content(
+                    model="models/gemini-2.0-flash",
+                    contents=prompt
+                )
+                return safe_extract_text(response)
+            except Exception as e2:
+                print(f"⚠️ Retry Failed: {str(e2)}")
+
+        # Scenario: Fallback to Gemini 2.0 Flash Lite
+        print("💡 Attempting fallback to Gemini 2.0 Flash Lite...")
+        try:
+            response = gemini_client.models.generate_content(
+                model="models/gemini-2.0-flash-lite",
+                contents=prompt
+            )
+            return safe_extract_text(response)
+        except Exception as e3:
+            print(f"❌ Fallback Failed: {str(e3)}")
+            
+    # Final Fallback: Safe UI String
+    return f"AI Assistant is currently calibrating. Your question was: '{original_query or '...'}'"
+
+
+def ask_gemini(prompt):
+    return call_gemini_safely(prompt, "Direct Insight Query")
+
+
+def generate_model_summary(model_name, score, problem_type):
+    if not gemini_client:
+        return "AI summary not available"
+
+    prompt = f"""
+    Explain this ML model in simple student-friendly language:
+
+    Model: {model_name}
+    Score: {score}
+    Type: {problem_type}
+
+    Include:
+    - What this model does
+    - Why it is good
+    - When to use it
+    - Limitations
+    """
+
+    return call_gemini_safely(prompt, f"Explain {model_name}")
+
 print("MONGO_URL:", MONGO_URL)
 
 client = MongoClient(MONGO_URL)
@@ -168,7 +270,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-print("✅ App created")
+
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+print("✅ App created and uploads mounted")
 
 
 def lightweight_feature_message(feature_name):
@@ -179,7 +284,7 @@ def lightweight_feature_message(feature_name):
 
 
 @lru_cache(maxsize=1)
-def get_openai_client():
+def get_openclient():
     if not OPENAI_API_KEY:
         return None
 
@@ -196,17 +301,26 @@ def get_model_library():
     try:
         from models.model_library import CLASSIFICATION_MODELS, REGRESSION_MODELS  # type: ignore
     except ImportError:
-        # Fallback stub models
+        from sklearn.linear_model import LogisticRegression, LinearRegression
+        from sklearn.svm import SVC, SVR
+        from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+        from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+
         CLASSIFICATION_MODELS = {
-            "RandomForest": RandomForestClassifier,
-            "LogisticRegression": lambda: None,
-            "SVM": lambda: None,
+            "RandomForest": RandomForestClassifier(),
+            "LogisticRegression": LogisticRegression(max_iter=200),
+            "SVM": SVC(probability=True),
+            "KNN": KNeighborsClassifier(),
+            "DecisionTree": DecisionTreeClassifier(),
         }
         REGRESSION_MODELS = {
-            "RandomForest": RandomForestRegressor,
-            "LinearRegression": lambda: None,
+            "RandomForest": RandomForestRegressor(),
+            "LinearRegression": LinearRegression(),
+            "SVR": SVR(),
+            "KNN": KNeighborsRegressor(),
+            "DecisionTree": DecisionTreeRegressor(),
         }
-    
+
     return CLASSIFICATION_MODELS, REGRESSION_MODELS
 
 
@@ -302,9 +416,7 @@ def get_prophet_class():
     try:
         from prophet import Prophet
     except Exception as exc:
-        raise RuntimeError(
-            "Prophet is not installed. Add it back to enable time-series training."
-        ) from exc
+        raise RuntimeError(f"Prophet failed to import: {str(exc)}")
 
     return Prophet
 
@@ -365,8 +477,8 @@ def get_tab_transformer_class():
     return TabTransformer
 
 
-def require_openai_client():
-    client = get_openai_client()
+def require_openclient():
+    client = get_openclient()
 
     if not client:
         raise HTTPException(
@@ -563,7 +675,7 @@ def normalize_experiment_entry(entry):
     timestamp = entry.get("time") or entry.get("timestamp")
     leaderboard_models = build_leaderboard_payload(
         best_model_name=entry.get("best_model") or entry.get("model_name") or "N/A",
-        model_version=entry.get("model_version", os.path.basename(MODEL_PATH)),
+        model_version=entry.get("model_version", "model.pkl"),
         models=entry.get("leaderboard", []),
         dataset_type=entry.get("dataset_type"),
         problem_type=entry.get("problem_type"),
@@ -955,15 +1067,48 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
             model.fit(X_train, y_train)
             preds = model.predict(X_test)
 
-            if problem_type == "classification":
-                score = accuracy_score(y_test, preds)
-                metrics = {"accuracy": score}
-            else:
-                r2 = r2_score(y_test, preds)
-                mse = mean_squared_error(y_test, preds)
+            from sklearn.metrics import mean_squared_error
+            loss = 0.0
 
+            if problem_type == "classification":
+                from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, log_loss
+                score = accuracy_score(y_test, preds)
+                try:
+                    # Try to get probabilities for log_loss
+                    if hasattr(model, "predict_proba"):
+                        probs = model.predict_proba(X_test)
+                        loss = log_loss(y_test, probs)
+                    else:
+                        loss = 0.0 # Fallback
+                    
+                    prec = precision_score(y_test, preds, average="weighted", zero_division=0)
+                    rec  = recall_score(y_test, preds, average="weighted", zero_division=0)
+                    f1   = f1_score(y_test, preds, average="weighted", zero_division=0)
+                except Exception:
+                    prec = rec = f1 = 0.0
+                metrics = {
+                    "accuracy": round(float(score), 4),
+                    "precision": round(float(prec), 4),
+                    "recall": round(float(rec), 4),
+                    "f1": round(float(f1), 4),
+                    "loss": round(float(loss), 4)
+                }
+            else:
+                from sklearn.metrics import r2_score
+                import math
+                r2  = r2_score(y_test, preds)
+                mse = mean_squared_error(y_test, preds)
+                rmse = math.sqrt(mse)
+                mae  = float(np.mean(np.abs(np.array(y_test) - np.array(preds))))
                 score = r2
-                metrics = {"r2": r2, "mse": mse}
+                loss = mse
+                metrics = {
+                    "r2": round(float(r2), 4),
+                    "mse": round(float(mse), 4),
+                    "rmse": round(float(rmse), 4),
+                    "mae": round(float(mae), 4),
+                    "loss": round(float(mse), 4)
+                }
 
                 if np.isnan(score) or score is None:
                     score = 0.0
@@ -975,6 +1120,7 @@ def train_single_model(name, model, X_train, X_test, y_train, y_test, problem_ty
         return {
             "model": name,
             "score": float(score),
+            "loss": float(loss),
             "trained_model": model,
             "time": duration,
             "metrics": metrics,
@@ -1764,7 +1910,8 @@ def handle_tabular(df, target_column):
 
     # Clean text
     for col in df.select_dtypes(include="object"):
-        df[col] = df[col].astype(str).str.encode("ascii", "ignore").str.decode()
+        df[col] = df[col].astype(str)
+        df[col] = df[col].str.replace(r"[^\x00-\x7F]+", "", regex=True)
 
     X = df.drop(columns=[target_column])
     y = df[target_column]
@@ -1795,6 +1942,7 @@ async def auto_train(
     file: UploadFile = File(...),
     target_column: str = Form(None),
     dataset_type: str = Form(None),
+    model_name: str = Form("auto"),
 ):
     filename = (file.filename if file.filename is not None else "").lower()
     user_id = extract_user_id_from_request(request)
@@ -1881,108 +2029,201 @@ async def auto_train(
 
         loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
-        model = build_simple_cnn(len(dataset.classes)).to(device)
-        criterion = nn.CrossEntropyLoss()
+        # ===== MULTI-MODEL IMAGE TRAINING =====
+        vision_models = torch_runtime["models"]
 
-        optimizer = torch.optim.Adam(
-            list(model.model.layer4.parameters()) + list(model.model.fc.parameters()),
-            lr=0.001,
-        )
+        # Inference-safe transform for validation
+        val_transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ])
+        val_dataset = datasets.ImageFolder(IMAGE_DATASET_FOLDER, transform=val_transform)
+        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
-        training_progress["progress"] = 0
-        total_epochs = 5
+        num_classes = len(dataset.classes)
 
-        for epoch in range(total_epochs):
-            model.train()
+        def make_model(name):
+            if name == "ResNet18":
+                m = vision_models.resnet18(weights=vision_models.ResNet18_Weights.DEFAULT)
+                m.fc = nn.Linear(m.fc.in_features, num_classes)
+                return m
+            elif name == "ViT":
+                m = vision_models.vit_b_16(weights=vision_models.ViT_B_16_Weights.DEFAULT)
+                m.heads.head = nn.Linear(m.heads.head.in_features, num_classes)
+                return m
+            elif name == "MobileNet":
+                m = vision_models.mobilenet_v2(weights=vision_models.MobileNet_V2_Weights.DEFAULT)
+                m.classifier[1] = nn.Linear(m.classifier[1].in_features, num_classes)
+                return m
+            else:  # SimpleCNN (resnet18 backbone frozen)
+                return build_simple_cnn(num_classes)
 
-            for images, labels in loader:
-                images, labels = images.to(device), labels.to(device)
+        competitors = ["SimpleCNN", "ResNet18", "ViT", "MobileNet"]
+        if model_name and model_name.lower() != "auto" and model_name in competitors:
+            competitors = [model_name]
+            print(f"🎯 Manual image model selected: {model_name}")
+        img_results = []
+        best_score = 0.0
+        best_loss = float("inf")
+        best_model_name = "SimpleCNN"
+        best_model_state = None
+        total_models = len(competitors)
 
-                optimizer.zero_grad()
+        for m_idx, m_name in enumerate(competitors):
+            print(f"\n🔥 Training {m_name} ({m_idx + 1}/{total_models})")
+            update_progress(
+                int(20 + (m_idx / total_models) * 60),
+                f"Training {m_name}",
+                f"Model {m_idx + 1} of {total_models}"
+            )
 
-                outputs = model(images)
+            try:
+                m = make_model(m_name).to(device)
+                crit = nn.CrossEntropyLoss()
 
-                loss = criterion(outputs, labels)
+                # Only unfreeze last layer for pretrained models to speed up
+                if m_name in ("ResNet18", "ViT"):
+                    for p in m.parameters():
+                        p.requires_grad = False
+                    # Unfreeze classifier head
+                    if m_name == "ResNet18":
+                        for p in m.fc.parameters():
+                            p.requires_grad = True
+                    else:
+                        for p in m.heads.parameters():
+                            p.requires_grad = True
 
-                loss.backward()
+                opt = torch.optim.Adam(
+                    filter(lambda p: p.requires_grad, m.parameters()), lr=0.001
+                )
 
-                optimizer.step()
+                # Train 3 epochs
+                m.train()
+                total_loss = 0.0
+                total_batches = 0
+                for epoch in range(3):
+                    for imgs, lbls in loader:
+                        imgs, lbls = imgs.to(device), lbls.to(device)
+                        opt.zero_grad()
+                        out = m(imgs)
+                        loss = crit(out, lbls)
+                        loss.backward()
+                        opt.step()
+                        total_loss += loss.item()
+                        total_batches += 1
 
-            training_progress["value"] = int(((epoch + 1) / total_epochs) * 100)
+                avg_loss = total_loss / total_batches if total_batches > 0 else 0.0
+
+                # Evaluate on val_loader (no augmentation)
+                m.eval()
+                correct = total = 0
+                with torch.no_grad():
+                    for imgs, lbls in val_loader:
+                        imgs, lbls = imgs.to(device), lbls.to(device)
+                        out = m(imgs)
+                        _, pred = torch.max(out, 1)
+                        total += lbls.size(0)
+                        correct += (pred == lbls).sum().item()
+
+                acc = correct / total if total > 0 else 0.0
+                print(f"{m_name} Accuracy: {acc:.4f}, Loss: {avg_loss:.4f}")
+                img_results.append({"model": m_name, "score": float(acc), "loss": float(avg_loss), "time": None})
+
+                if acc > best_score:
+                    best_score = acc
+                    best_loss = avg_loss
+                    best_model_name = m_name
+                    best_model_state = {k: v.cpu() for k, v in m.state_dict().items()}
+
+            except Exception as e:
+                print(f"❌ {m_name} failed: {e}")
+                img_results.append({"model": m_name, "score": 0.0, "time": None})
+
+        # Sort leaderboard highest first
+        img_results_sorted = sorted(img_results, key=lambda x: x["score"], reverse=True)
 
         training_progress["value"] = 100
 
+        # Save best model with its type so loader can reconstruct correctly
+        os.makedirs(os.path.dirname(IMAGE_MODEL_PATH), exist_ok=True)
         torch.save(
-            {"model_state_dict": model.state_dict(), "classes": dataset.classes},
-            CNN_MODEL_PATH,
-        )
-
-        joblib.dump(
             {
-                "problem_type": "image_classification",
-                "dataset_type": "image",
-                "model_name": model.__class__.__name__,
+                "model_state_dict": best_model_state,
                 "classes": dataset.classes,
-                "model_state_dict": {
-                    key: value.detach().cpu()
-                    for key, value in model.state_dict().items()
-                },
+                "model_type": best_model_name,
             },
-            MODEL_PATH,
+            IMAGE_MODEL_PATH,
         )
+        print(f"\n✅ SAVED MODEL PATH: {os.path.abspath(IMAGE_MODEL_PATH)}")
+        print(f"✅ BEST MODEL: {best_model_name}  |  ACCURACY: {best_score:.4f}")
+        print(f"✅ FILE SIZE: {os.path.getsize(IMAGE_MODEL_PATH):,} bytes")
 
-        correct = 0
-        total = 0
-
-        model.eval()
-        with torch.no_grad():
-            for images, labels in loader:
-                images, labels = images.to(device), labels.to(device)
-                outputs = model(images)
-                _, predicted = torch.max(outputs, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
-
-        best_score = correct / total
-        
         leaderboard_data = save_leaderboard_snapshot(
-            best_model_name=model.__class__.__name__,
-            model_version=os.path.basename(MODEL_PATH),
-            models=[{"model": model.__class__.__name__, "score": float(best_score), "time": None}],
+            best_model_name=best_model_name,
+            model_version=os.path.basename(IMAGE_MODEL_PATH),
+            models=img_results_sorted,
             dataset_type="image",
             problem_type="image_classification",
         )
 
         save_model_record(
             user_id=user_id,
-            model_name=model.__class__.__name__,
-            model_version=os.path.basename(MODEL_PATH),
+            model_name=best_model_name,
+            model_version=os.path.basename(IMAGE_MODEL_PATH),
             dataset_type="image",
             score=float(best_score),
         )
+
+        # Log experiment to MongoDB
+        try:
+            experiment_doc = {
+                "best_model": best_model_name,
+                "score": float(best_score),
+                "loss": float(best_loss),
+                "created_at": datetime.utcnow(),
+                "timestamp": datetime.now().isoformat(),
+                "dataset": file.filename or "uploaded_file",
+                "problem_type": "image",
+                "user_id": user_id,
+                "target_column": "classification",
+                "rows": len(dataset),
+                "columns": 3, # RGB
+                "metrics": {"accuracy": float(best_score), "loss": float(best_loss)},
+                "all_models": [
+                    {"model": m["model"], "score": m["score"], "loss": m.get("loss", 0.0)}
+                    for m in img_results_sorted
+                ],
+            }
+            experiments_collection.insert_one(experiment_doc)
+        except Exception as e:
+            print(f"Error logging experiment: {str(e)}")
+
         track_usage_event(
-            user_id, "train_image_model", {"model_name": model.__class__.__name__}
+            user_id, "train_image_model", {"model_name": best_model_name}
         )
 
+        # Track which model type was last trained
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        with open(LAST_MODEL_TYPE_PATH, "w") as f:
+            f.write("image")
+
+        _bs = float(best_score)
         return {
             "status": "success",
             "dataset_type": "image",
             "problem_type": "Image Classification",
-            "best_model": model.__class__.__name__,
-            "score": float(best_score) if best_score is not None else 0.0,
+            "best_model": best_model_name,
+            "score": _bs,
+            "loss": float(best_loss),
             "classes": dataset.classes,
             "samples": len(dataset),
-            "model_version": os.path.basename(MODEL_PATH),
-            "metrics": {
-                "main_metric": float(best_score) if best_score is not None else 0.0,
-                "accuracy": float(best_score) if best_score is not None else 0.0
-            },
-            "leaderboard": [
-                {"model": model.__class__.__name__, "score": float(best_score) if best_score is not None else 0.0}
-            ],
-            "top_models": [
-                {"model": model.__class__.__name__, "score": float(best_score) if best_score is not None else 0.0}
-            ]
+            "rows": len(dataset),
+            "model_version": os.path.basename(IMAGE_MODEL_PATH),
+            "metrics": {"main_metric": _bs, "accuracy": _bs, "loss": float(best_loss)},
+            "leaderboard": img_results_sorted,
+            "top_models": img_results_sorted[:3],
+            "all_models": img_results_sorted,
         }
 
     elif detected_type == "time_series":
@@ -1993,7 +2234,8 @@ async def auto_train(
 
         date_column = meta["date_column"]
         target_columns = [auto_select_target(df)]
-        
+        ts_rf_scores = {}   # track RF lag model scores per column
+
         models = {}
         for col in target_columns:
             ts_df = handle_time_series(df, date_column, col)
@@ -2013,13 +2255,34 @@ async def auto_train(
 
             preds = forecast.tail(len(test))["yhat"].values
             actual = test["y"].values
-
             col_mae = mean_absolute_error(actual, preds)
-            
+            col_loss = mean_squared_error(actual, preds)
+
+            # --- RandomForest lag model comparison ---
+            try:
+                rf_ts_df = ts_df.copy()
+                rf_ts_df["lag1"] = rf_ts_df["y"].shift(1)
+                rf_ts_df = rf_ts_df.dropna()
+                Xlag = rf_ts_df[["lag1"]]
+                ylag = rf_ts_df["y"]
+                split = int(len(Xlag) * 0.8)
+                from sklearn.ensemble import RandomForestRegressor as _RFTS
+                from sklearn.model_selection import train_test_split as _tts
+                Xl_tr, Xl_te, yl_tr, yl_te = Xlag[:split], Xlag[split:], ylag[:split], ylag[split:]
+                rf_ts = _RFTS(n_estimators=50)
+                rf_ts.fit(Xl_tr, yl_tr)
+                rf_preds = rf_ts.predict(Xl_te)
+                rf_col_mae = mean_absolute_error(yl_te, rf_preds) if len(rf_preds) else col_mae
+                rf_col_loss = mean_squared_error(yl_te, rf_preds) if len(rf_preds) else col_loss
+                ts_rf_scores[col] = {"mae": float(rf_col_mae), "loss": float(rf_col_loss)}
+            except Exception:
+                ts_rf_scores[col] = {"mae": col_mae, "loss": col_loss}
+
             # Store model and meta info
             models[col] = {
                 "model": model,
-                "mae": float(col_mae)
+                "mae": float(col_mae),
+                "loss": float(col_loss)
             }
 
         if len(models) > 0:
@@ -2035,7 +2298,8 @@ async def auto_train(
                 future_only = forecast.tail(10)[["ds", "yhat"]]
                 forecast_output[col] = future_only.to_dict(orient="records")
 
-            avg_mae = sum(maes) / len(maes)
+            avg_mae = sum(m["mae"] for m in models.values()) / len(models)
+            avg_loss = sum(m["loss"] for m in models.values()) / len(models)
 
             # Update models dict to only contain the Prophet objects for joblib
             joblib_models = {col: info["model"] for col, info in models.items()}
@@ -2047,65 +2311,133 @@ async def auto_train(
                     "date_column": date_column,
                     "target_columns": list(models.keys()),
                 },
-                MODEL_PATH,
+                TIME_SERIES_MODEL_PATH,
             )
 
+            avg_rf_mae = sum(s["mae"] for s in ts_rf_scores.values()) / len(ts_rf_scores) if ts_rf_scores else avg_mae
+            avg_rf_loss = sum(s["loss"] for s in ts_rf_scores.values()) / len(ts_rf_scores) if ts_rf_scores else avg_loss
+
+            ts_leaderboard = [
+                {"model": "Prophet", "score": float(avg_mae), "loss": float(avg_loss), "time": None},
+                {"model": "RandomForest (lag)", "score": float(avg_rf_mae), "loss": float(avg_rf_loss), "time": None},
+            ]
+            ts_leaderboard_sorted = sorted(ts_leaderboard, key=lambda x: x["score"])  # lower MAE = better
+            ts_best = ts_leaderboard_sorted[0]["model"]
+            best_ts_loss = ts_leaderboard_sorted[0]["loss"]
+
             leaderboard_data = save_leaderboard_snapshot(
-                best_model_name="Prophet",
-                model_version=os.path.basename(MODEL_PATH),
-                models=[{"model": "Prophet", "score": float(avg_mae), "time": None}],
+                best_model_name=ts_best,
+                model_version=os.path.basename(TIME_SERIES_MODEL_PATH),
+                models=ts_leaderboard_sorted,
                 dataset_type="time_series",
                 problem_type="time_series_multi",
             )
 
             save_model_record(
                 user_id=user_id,
-                model_name="Prophet",
-                model_version=os.path.basename(MODEL_PATH),
+                model_name=ts_best,
+                model_version=os.path.basename(TIME_SERIES_MODEL_PATH),
                 dataset_type="time_series",
                 score=float(avg_mae),
             )
             track_usage_event(
-                user_id, "train_time_series_model", {"model_name": "Prophet"}
+                user_id, "train_time_series_model", {"model_name": ts_best}
             )
+
+            # Log experiment to MongoDB
+            try:
+                experiment_doc = {
+                    "best_model": ts_best,
+                    "score": float(avg_mae),
+                    "loss": float(best_ts_loss),
+                    "created_at": datetime.utcnow(),
+                    "timestamp": datetime.now().isoformat(),
+                    "dataset": file.filename or "uploaded_file",
+                    "problem_type": "time_series",
+                    "user_id": user_id,
+                    "target_column": str(meta["target_column"]) if "target_column" in meta else "multi",
+                    "rows": len(df),
+                    "columns": len(df.columns),
+                    "metrics": {"mae": float(avg_mae), "loss": float(best_ts_loss)},
+                    "all_models": [
+                        {"model": m["model"], "score": m["score"], "loss": m.get("loss", 0.0)}
+                        for m in ts_leaderboard_sorted
+                    ],
+                }
+                experiments_collection.insert_one(experiment_doc)
+            except Exception as e:
+                print(f"Error logging experiment: {str(e)}")
+
+            # Track which model type was last trained
+            os.makedirs(MODEL_DIR, exist_ok=True)
+            with open(LAST_MODEL_TYPE_PATH, "w") as f:
+                f.write("time_series")
 
             return {
                 "status": "success",
                 "dataset_type": "time_series",
                 "problem_type": "Time-Series (Universal)",
-                "best_model": "Prophet",
+                "best_model": ts_best,
                 "score": float(avg_mae),
+                "loss": float(best_ts_loss),
                 "mae": float(avg_mae),
                 "date_column": date_column,
                 "target_columns": list(models.keys()),
                 "forecast": forecast_output,
                 "rows": len(df),
                 "message": f"Model trained successfully with average MAE: {round(avg_mae, 4)}",
-                "model_version": os.path.basename(MODEL_PATH),
+                "model_version": os.path.basename(TIME_SERIES_MODEL_PATH),
                 "metrics": {
                     "main_metric": float(avg_mae),
-                    "mae": float(avg_mae)
+                    "mae": float(avg_mae),
+                    "loss": float(best_ts_loss)
                 },
-                "leaderboard": [
-                    {"model": "Prophet", "score": float(avg_mae)}
-                ],
-                "top_models": [
-                    {"model": "Prophet", "score": float(avg_mae)}
-                ]
+                "leaderboard": ts_leaderboard_sorted,
+                "top_models": ts_leaderboard_sorted[:3],
+                "all_models": ts_leaderboard_sorted
             }
         else:
             return {"error": "Failed to train time-series models on any column"}
 
     elif detected_type == "tabular":
-        if not target_column:
-            target_column = auto_select_target(df)
-            print(f"Auto-selected target column: {target_column}")
+        # Save original columns before any cleaning
+        original_columns = list(df.columns)
 
+        # Clean column names (replace special chars with underscores)
+        df.columns = df.columns.str.replace(r"[^\w]+", "_", regex=True)
+
+        # Build original → cleaned mapping
+        column_mapping = dict(zip(original_columns, df.columns))
+
+        # ===== TARGET COLUMN FIX =====
+
+        # Clean input
+        if target_column:
+            target_column = target_column.strip()
+
+        # Map original → cleaned
+        if target_column:
+            target_column = column_mapping.get(target_column, target_column)
+
+        # Auto-select if missing or wrong
+        if not target_column or target_column.lower() in ["string", "none", ""]:
+            target_column = auto_select_target(df)
+            print(f"✅ Auto-selected target column: {target_column}")
+
+        # Try smart matching if still not found
+        if target_column not in df.columns:
+            cleaned_map = {c.lower(): c for c in df.columns}
+            target_column = cleaned_map.get(target_column.lower(), target_column)
+
+        # Final validation
         if target_column not in df.columns:
             return {
                 "error": "Invalid target column",
-                "available_columns": list(df.columns),
+                "available_columns": original_columns,
+                "hint": "Use one of the available columns exactly"
             }
+
+        print(f"🎯 Using target column: {target_column}")
 
         try:
             df = run_auto_feature_engineering(df)
@@ -2114,7 +2446,7 @@ async def auto_train(
             print("Skipping feature engineering:", str(e))
 
         problem_type = detect_training_problem_type(df, target_column)
-        
+
         X, y = handle_tabular(df, target_column)
 
         if problem_type == "classification":
@@ -2126,8 +2458,35 @@ async def auto_train(
             X, y, test_size=0.2, random_state=42
         )
 
+        # SAVE SAMPLES FOR XAI
+        try:
+            os.makedirs(MODEL_DIR, exist_ok=True)
+            # Save small sample (max 50 rows) for SHAP/LIME
+            X_sample = X_test.iloc[:50] if len(X_test) > 50 else X_test
+            y_sample = y_test[:50] if len(y_test) > 50 else y_test
+            
+            joblib.dump({
+                "X_test": X_sample,
+                "y_test": y_sample,
+                "feature_names": X.columns.tolist(),
+                "target_name": target_column
+            }, os.path.join(MODEL_DIR, "last_xai_sample.pkl"))
+        except Exception as e:
+            print(f"⚠️ Failed to save XAI sample: {e}")
+
         dataset_info = analyze_training_dataset(X, y)
-        recommended = recommend_training_models(dataset_info, problem_type)
+        # Build full recommended list, then apply manual model_name filter
+        if problem_type == "classification":
+            recommended = ["RandomForest", "LogisticRegression", "SVM", "KNN", "DecisionTree"]
+        else:
+            recommended = ["RandomForest", "LinearRegression", "SVR", "KNN", "DecisionTree"]
+
+        # Manual model selection: if user picked a specific model, run only that
+        if model_name and model_name.lower() != "auto" and model_name in (
+            list(get_model_library()[0].keys()) + list(get_model_library()[1].keys())
+        ):
+            recommended = [model_name]
+            print(f"🎯 Manual model selected: {model_name}")
 
         if LIGHTWEIGHT_DEPLOYMENT:
             recommended = [
@@ -2167,6 +2526,7 @@ async def auto_train(
         results = []
         best_model = None
         best_score = -999
+        best_loss = 0.0
         update_progress(40, "Training Models", "Starting model training...")
 
         futures = []
@@ -2175,11 +2535,12 @@ async def auto_train(
         max_workers = 2 if LIGHTWEIGHT_DEPLOYMENT else 4
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for name, model in models.items():
+                import copy
                 futures.append(
                     executor.submit(
                         train_single_model,
                         name,
-                        model,
+                        copy.deepcopy(model),
                         X_train,
                         X_test,
                         y_train,
@@ -2222,23 +2583,40 @@ async def auto_train(
                     best_model = trained_model
 
         top_models = sorted(results, key=lambda x: x["score"], reverse=True)
-        for i, model in enumerate(top_models):
-            model["rank"] = i + 1
+        for i, m in enumerate(top_models):
+            m["rank"] = i + 1
+        top_3_models = top_models[:3]
         best_model_name = top_models[0]["model"]
         update_progress(85, "Finalizing", "Selecting best model...")
 
+        # Guard: if all models failed, return early
+        if best_model is None:
+            return {
+                "error": "All models failed to train",
+                "hint": "Check dataset quality or target column"
+            }
+
         # Log experiment to MongoDB
         try:
+            best_metrics = top_models[0].get("metrics", {}) if top_models else {}
+            best_loss = best_metrics.get("loss", 0.0)
             experiment_doc = {
                 "best_model": best_model_name,
                 "score": float(best_score),
+                "loss": float(best_loss),
                 "created_at": datetime.utcnow(),
+                "timestamp": datetime.now().isoformat(),
                 "dataset": file.filename or "uploaded_file",
                 "problem_type": problem_type,
                 "user_id": user_id,
                 "target_column": target_column,
                 "rows": len(df),
-                "columns": len(df.columns)
+                "columns": len(df.columns),
+                "metrics": best_metrics,
+                "all_models": [
+                    {"model": m["model"], "score": m["score"], "loss": m.get("metrics", {}).get("loss", 0.0)}
+                    for m in top_models if m.get("score", -999) > -999
+                ],
             }
             experiments_collection.insert_one(experiment_doc)
         except Exception as e:
@@ -2258,42 +2636,49 @@ async def auto_train(
             problem_type=problem_type,
         )
 
-        joblib.dump(
-            {
+        # Safe model save — only write LAST_MODEL_TYPE_PATH on success
+        try:
+            model_payload = {
                 "model": best_model,
                 "feature_columns": X.columns.tolist(),
                 "problem_type": problem_type,
-            },
-            model_path,
-        )
+                "X_train": X_train,
+                "X_test": X_test,
+                "y_train": y_train,
+                "y_test": y_test
+            }
+            joblib.dump(model_payload, model_path)
+            joblib.dump(model_payload, TABULAR_MODEL_PATH)
 
-        joblib.dump(
-            {
-                "model": best_model,
-                "feature_columns": X.columns.tolist(),
-                "problem_type": problem_type,
-            },
-            MODEL_PATH,
-        )
+            os.makedirs(MODEL_DIR, exist_ok=True)
+            try:
+                with open(LAST_MODEL_TYPE_PATH, "w") as f:
+                    f.write("tabular")
+                print("✅ Model type set to TABULAR")
+            except Exception as e:
+                print("❌ Failed to write model type:", str(e))
 
-        update_progress(95, "Saving", "Saving model and reports...")
+            update_progress(95, "Saving", "Saving model and reports...")
 
-        save_model_record(
-            user_id=user_id,
-            model_name=best_model_name,
-            model_version=model_filename,
-            dataset_type="tabular",
-            score=float(best_score),
-        )
-        track_usage_event(
-            user_id,
-            "train_tabular_model",
-            {
-                "model_name": best_model_name,
-                "problem_type": problem_type,
-                "score": float(best_score),
-            },
-        )
+            save_model_record(
+                user_id=user_id,
+                model_name=best_model_name,
+                model_version=model_filename,
+                dataset_type="tabular",
+                score=float(best_score),
+            )
+            track_usage_event(
+                user_id,
+                "train_tabular_model",
+                {
+                    "model_name": best_model_name,
+                    "problem_type": problem_type,
+                    "score": float(best_score),
+                },
+            )
+
+        except Exception as e:
+            return {"error": f"Model saving failed: {str(e)}"}
 
         quality = dataset_quality_score(df)
         strength = model_strength_summary(
@@ -2332,6 +2717,7 @@ async def auto_train(
                 100, "Completed", "Training completed successfully", eta="0 sec"
             )
 
+            best_model_metrics = top_models[0].get("metrics", {}) if top_models else {}
             return {
                 "status": "success",
                 "dataset_type": "tabular",
@@ -2340,29 +2726,34 @@ async def auto_train(
                 "target_column": target_column,
                 "best_model": str(best_model_name),
                 "score": float(best_score) if best_score is not None else 0.0,
+                "loss": float(best_loss),
                 "accuracy": round(best_score, 4),
-                "top_models": top_models,
+                "top_models": top_3_models,
+                "all_models": top_models,
                 "leaderboard": leaderboard_data["models"],
                 "generated_code": generated_code,
                 "model_version": model_filename,
                 "ai_insights": ai_insights,
                 "metrics": {
                     "main_metric": float(best_score) if best_score is not None else 0.0,
-                    "accuracy": float(best_score) if best_score is not None else 0.0
+                    **best_model_metrics,
                 }
             }
         else:
             # We must make sure test labels and predictions match
             try:
                 preds = best_model.predict(X_test)
-                mse = mean_squared_error(y_test, preds)
+                import math
+                mse  = mean_squared_error(y_test, preds)
+                rmse = math.sqrt(mse)
+                mae  = float(np.mean(np.abs(np.array(y_test) - np.array(preds))))
             except:
-                mse = 0.0
+                mse = rmse = mae = 0.0
                 
             update_progress(
                 100, "Completed", "Training completed successfully", eta="0 sec"
             )
-
+            best_model_metrics = top_models[0].get("metrics", {}) if top_models else {}
             return {
                 "status": "success",
                 "dataset_type": "tabular",
@@ -2371,19 +2762,21 @@ async def auto_train(
                 "target_column": target_column,
                 "best_model": str(best_model_name),
                 "score": float(best_score) if best_score is not None else 0.0,
+                "loss": float(best_loss),
                 "mse": round(mse, 4),
                 "r2": round(best_score, 4),
-                "top_models": top_models,
+                "top_models": top_3_models,
+                "all_models": top_models,
                 "leaderboard": leaderboard_data["models"],
                 "generated_code": generated_code,
                 "model_version": model_filename,
                 "ai_insights": ai_insights,
                 "metrics": {
                     "main_metric": float(best_score) if best_score is not None else 0.0,
-                    "r2": float(best_score) if best_score is not None else 0.0,
-                    "mse": float(mse)
+                    **best_model_metrics,
                 }
             }
+
 
 
 def risk_analysis(prob_array):
@@ -2405,14 +2798,115 @@ def risk_analysis(prob_array):
                                                        
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    if not os.path.exists(MODEL_PATH):
-        return {"error": "No trained model found"}
+    if not os.path.exists(LAST_MODEL_TYPE_PATH):
+        return {"error": "No model trained yet"}
 
-    model_package = joblib.load(MODEL_PATH)
+    with open(LAST_MODEL_TYPE_PATH, "r") as f:
+        model_type = f.read().strip()
+
+    print(f"🔥 LAST MODEL TYPE: {model_type}")
+
+    if model_type == "image":
+        if not os.path.exists(IMAGE_MODEL_PATH):
+            return {"error": "No trained image model found. Train an image dataset first."}
+
+        print(f"📥 LOADING MODEL FROM: {os.path.abspath(IMAGE_MODEL_PATH)}")
+        print(f"📦 FILE SIZE: {os.path.getsize(IMAGE_MODEL_PATH):,} bytes")
+
+
+        try:
+            torch_runtime = get_torch_runtime()
+            torch = torch_runtime["torch"]
+            nn = torch_runtime["nn"]
+            device = torch_runtime["device"]
+            transforms = torch_runtime["transforms"]
+            Image = get_image_module()
+        except Exception as e:
+            return {"error": f"PyTorch not available: {str(e)}"}
+
+        try:
+            checkpoint = torch.load(IMAGE_MODEL_PATH, map_location=device)
+        except Exception as e:
+            return {"error": f"Failed to load image model: {str(e)}"}
+
+        classes = checkpoint.get("classes", [])
+        if not classes:
+            return {"error": "Model has no class labels. Retrain."}
+
+        saved_model_type = checkpoint.get("model_type", "SimpleCNN")
+        vision_models = torch_runtime["models"]
+        print(f"🧠 Reconstructing architecture: {saved_model_type}")
+
+        if saved_model_type == "ResNet18":
+            model_obj = vision_models.resnet18()
+            model_obj.fc = nn.Linear(model_obj.fc.in_features, len(classes))
+        elif saved_model_type == "ViT":
+            model_obj = vision_models.vit_b_16()
+            model_obj.heads.head = nn.Linear(model_obj.heads.head.in_features, len(classes))
+        else:
+            model_obj = build_simple_cnn(len(classes))
+
+        model_obj.load_state_dict(checkpoint["model_state_dict"])
+        model_obj = model_obj.to(device)
+        model_obj.eval()
+
+        # Read the uploaded file as an image
+        try:
+            raw_bytes = await file.read()
+            import io
+            image = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+        except Exception:
+            return {"error": "Invalid image file. Upload a .jpg / .png / .jpeg"}
+
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406],
+                                 [0.229, 0.224, 0.225]),
+        ])
+
+        img_tensor = transform(image).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            output = model_obj(img_tensor)
+            probs = torch.softmax(output, dim=1)
+            confidence, pred = torch.max(probs, 1)
+
+        predicted_class = classes[pred.item()]
+        conf_val = float(confidence.item())
+        risk = "Low Risk" if conf_val > 0.85 else "Moderate Risk" if conf_val > 0.65 else "High Risk"
+
+        return {
+            "problem_type": "Image Classification",
+            "num_predictions": 1,
+            "predictions": [{
+                "prediction": predicted_class,
+                "confidence": round(conf_val, 4),
+                "risk_level": risk,
+            }],
+            "predicted_class": predicted_class,
+            "confidence": round(conf_val, 4),
+            "risk_level": risk,
+            "all_probabilities": {
+                classes[i]: round(float(probs[0][i]), 4)
+                for i in range(len(classes))
+            },
+        }
+
+    elif model_type == "tabular":
+        if not os.path.exists(TABULAR_MODEL_PATH):
+            return {"error": "Tabular model file missing. Retrain."}
+        model_package = joblib.load(TABULAR_MODEL_PATH)
+
+    elif model_type == "time_series":
+        if not os.path.exists(TIME_SERIES_MODEL_PATH):
+            return {"error": "Time-series model file missing. Retrain."}
+        model_package = joblib.load(TIME_SERIES_MODEL_PATH)
+
+    else:
+        return {"error": "Unknown model type"}
+
     problem_type = model_package.get("problem_type")
-
-    if problem_type == "image_classification":
-        return {"error": "Latest model is an image model. Use /predict-image instead."}
 
                                                 
                             
@@ -2559,20 +3053,33 @@ async def predict_image(file: UploadFile = File(...)):
             detail=lightweight_feature_message("Image inference"),
         )
 
-    if not os.path.exists(CNN_MODEL_PATH):
+    if not os.path.exists(IMAGE_MODEL_PATH):
         return {"error": "No trained CNN model"}
 
     torch_runtime = get_torch_runtime()
     torch = torch_runtime["torch"]
+    nn = torch_runtime["nn"]
     device = torch_runtime["device"]
     transforms = torch_runtime["transforms"]
+    vision_models = torch_runtime["models"]
     Image = get_image_module()
 
-    checkpoint = torch.load(CNN_MODEL_PATH, map_location=device)
+    checkpoint = torch.load(IMAGE_MODEL_PATH, map_location=device)
     classes = checkpoint["classes"]
+    saved_model_type = checkpoint.get("model_type", "SimpleCNN")
+    print(f"🧠 /predict-image reconstructing: {saved_model_type}")
 
-    model = build_simple_cnn(len(classes)).to(device)
+    if saved_model_type == "ResNet18":
+        model = vision_models.resnet18()
+        model.fc = nn.Linear(model.fc.in_features, len(classes))
+    elif saved_model_type == "ViT":
+        model = vision_models.vit_b_16()
+        model.heads.head = nn.Linear(model.heads.head.in_features, len(classes))
+    else:
+        model = build_simple_cnn(len(classes))
+
     model.load_state_dict(checkpoint["model_state_dict"])
+    model = model.to(device)
     model.eval()
 
     image = Image.open(file.file).convert("RGB")
@@ -2580,9 +3087,6 @@ async def predict_image(file: UploadFile = File(...)):
     transform = transforms.Compose(
         [
             transforms.Resize((224, 224)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(20),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]
@@ -2609,7 +3113,7 @@ async def explain_image(file: UploadFile = File(...)):
             detail=lightweight_feature_message("Image explanations"),
         )
 
-    if not os.path.exists(CNN_MODEL_PATH):
+    if not os.path.exists(IMAGE_MODEL_PATH):
         return {"error": "No trained CNN model"}
 
     torch_runtime = get_torch_runtime()
@@ -2619,7 +3123,7 @@ async def explain_image(file: UploadFile = File(...)):
     Image = get_image_module()
     plt = get_matplotlib_pyplot()
 
-    checkpoint = torch.load(CNN_MODEL_PATH, map_location=device)
+    checkpoint = torch.load(IMAGE_MODEL_PATH, map_location=device)
     classes = checkpoint["classes"]
 
     model = build_simple_cnn(len(classes)).to(device)
@@ -2668,10 +3172,11 @@ async def explain_image(file: UploadFile = File(...)):
 @app.get("/model-explain")
 def model_explain():
 
-    if not os.path.exists(MODEL_PATH):
+    matched_path = TABULAR_MODEL_PATH if os.path.exists(TABULAR_MODEL_PATH) else TIME_SERIES_MODEL_PATH
+    if not os.path.exists(matched_path):
         return {"error": "No trained model found"}
 
-    model_package = joblib.load(MODEL_PATH)
+    model_package = joblib.load(matched_path)
 
     problem_type = model_package.get("problem_type")
 
@@ -2724,10 +3229,11 @@ def model_explain():
 @app.post("/shap-explain")
 async def shap_explain(file: UploadFile = File(...)):
 
-    if not os.path.exists(MODEL_PATH):
+    matched_path = TABULAR_MODEL_PATH if os.path.exists(TABULAR_MODEL_PATH) else TIME_SERIES_MODEL_PATH
+    if not os.path.exists(matched_path):
         return {"error": "No trained model found"}
 
-    model_package = joblib.load(MODEL_PATH)
+    model_package = joblib.load(matched_path)
 
     if model_package["problem_type"] in ["time_series", "time_series_multi"]:
         return {"error": "SHAP not supported for time-series"}
@@ -2925,8 +3431,9 @@ CMD ["python", "generated_pipeline.py"]
             if os.path.exists(GENERATED_PIPELINE_PATH):
                 zipf.write(GENERATED_PIPELINE_PATH, arcname="generated_pipeline.py")
 
-            if os.path.exists(MODEL_PATH):
-                zipf.write(MODEL_PATH, arcname=os.path.basename(MODEL_PATH))
+            matched_path = TABULAR_MODEL_PATH if os.path.exists(TABULAR_MODEL_PATH) else TIME_SERIES_MODEL_PATH
+            if os.path.exists(matched_path):
+                zipf.write(matched_path, arcname=os.path.basename(matched_path))
 
                               
             with open(GENERATED_REQUIREMENTS_PATH, "w") as f:
@@ -2949,17 +3456,21 @@ CMD ["python", "generated_pipeline.py"]
 @app.get("/experiments")
 def get_experiments(request: Request):
     user_id = extract_user_id_from_request(request)
-
     query = {}
     if user_id:
         query["user_id"] = user_id
-
-    experiments = list(
-        experiments_collection.find(query, {"_id": 0})
-        .sort("created_at", -1)
-    )
-
+    experiments = list(experiments_collection.find(query, {"_id": 0}).sort("created_at", -1))
     return experiments
+
+@app.get("/leaderboard/{type}")
+def get_leaderboard_by_type(type: str, request: Request):
+    user_id = extract_user_id_from_request(request)
+    query = {"problem_type": type}
+    if user_id:
+        query["user_id"] = user_id
+    data = list(experiments_collection.find(query, {"_id": 0}))
+    sorted_data = sorted(data, key=lambda x: x.get("score", 0), reverse=True)
+    return sorted_data[:10]
 
 
                                                        
@@ -2995,6 +3506,49 @@ def get_insights(request: Request):
                                                        
                             
                                                        
+@app.get("/dashboard")
+def get_dashboard(request: Request):
+    user_id = extract_user_id_from_request(request)
+    query = {"user_id": user_id} if user_id else {}
+    data = list(experiments_collection.find(query, {"_id": 0}))
+
+    if not data:
+        return {
+            "total_experiments": 0,
+            "best_score": None,
+            "best_model": None,
+            "recent": []
+        }
+
+    from datetime import datetime
+
+    def safe_date(x):
+        try:
+            # Handle both ISO strings and potentially existing datetime objects
+            ts = x.get("timestamp") or x.get("created_at")
+            if isinstance(ts, datetime):
+                return ts
+            return datetime.fromisoformat(ts)
+        except:
+            return datetime.min
+
+    # Best score based on max value
+    best = max(data, key=lambda x: x.get("score", 0))
+    # Best loss (min non-zero loss)
+    losses = [x.get("loss", 999) for x in data if x.get("loss", 0) > 0]
+    best_loss = min(losses) if losses else None
+    
+    recent = sorted(data, key=safe_date, reverse=True)[:5]
+
+    return {
+        "total_experiments": len(data),
+        "best_score": best.get("score"),
+        "best_loss": best_loss,
+        "best_model": best.get("best_model") or best.get("model_name"),
+        "recent": recent
+    }
+
+
 @app.get("/ai-insights")
 def get_ai_insights(request: Request):
     user_id = extract_user_id_from_request(request)
@@ -3031,15 +3585,17 @@ def download_model(version: str):
 
 @app.get("/download-model")
 def download_best_model():
-    if os.path.exists(MODEL_PATH):
-        return FileResponse(MODEL_PATH, filename="best_model.pkl")
+    matched_path = TABULAR_MODEL_PATH if os.path.exists(TABULAR_MODEL_PATH) else TIME_SERIES_MODEL_PATH
+    if os.path.exists(matched_path):
+        return FileResponse(matched_path, filename=os.path.basename(matched_path))
     return {"error": "No trained model"}
 
 
 @app.get("/download-latest-model")
 def download_latest_model():
-    if os.path.exists(MODEL_PATH):
-        return FileResponse(MODEL_PATH, filename="best_model.pkl")
+    matched_path = TABULAR_MODEL_PATH if os.path.exists(TABULAR_MODEL_PATH) else TIME_SERIES_MODEL_PATH
+    if os.path.exists(matched_path):
+        return FileResponse(matched_path, filename=os.path.basename(matched_path))
     return {"error": "No trained model"}
 
 
@@ -3053,7 +3609,7 @@ def get_leaderboard(request: Request):
         return build_leaderboard_payload(
             best_model_name=latest_experiment["best_model"],
             model_version=latest_experiment.get("model_version")
-            or os.path.basename(MODEL_PATH),
+            or "model.pkl",
             models=latest_experiment.get("leaderboard", []),
             dataset_type=latest_experiment.get("dataset_type"),
             problem_type=latest_experiment.get("problem_type"),
@@ -3068,7 +3624,7 @@ def get_leaderboard(request: Request):
         best_model = leaderboard[0]["model"] if leaderboard else "N/A"
         return build_leaderboard_payload(
             best_model_name=best_model,
-            model_version=os.path.basename(MODEL_PATH),
+            model_version="model.pkl",
             models=leaderboard,
         )
 
@@ -3108,11 +3664,16 @@ async def analyze_dataset_file(file: UploadFile = File(...)):
     else:
         return {"error": "Unsupported file format"}
 
+    # AI Summary
+    dataset_info_str = f"Columns: {list(df.columns)}, Rows: {len(df)}, Types: {df.dtypes.astype(str).to_dict()}"
+    ai_summary = ask_gemini(f"Analyze this dataset summary and give 3 key insights/recommendations for ML: {dataset_info_str}")
+
     return {
         "rows": len(df),
         "columns": list(df.columns),
         "missing_values": df.isnull().sum().to_dict(),
         "data_types": df.dtypes.astype(str).to_dict(),
+        "ai_summary": ai_summary
     }
 
 
@@ -3143,7 +3704,7 @@ async def generate_image(request: Request, data: dict = Body(...)):
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt is required")
 
-    client = require_openai_client()
+    client = require_openclient()
 
     try:
         response = client.images.generate(
@@ -3215,7 +3776,7 @@ async def generate_code(request: Request, data: dict = Body(...)):
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
 
-    client = require_openai_client()
+    client = require_openclient()
 
     try:
         response = client.chat.completions.create(
@@ -3251,7 +3812,7 @@ async def text_to_speech(request: Request, data: dict = Body(...)):
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
 
-    client = require_openai_client()
+    client = require_openclient()
 
     try:
         audio_response = client.audio.speech.create(
@@ -3297,48 +3858,34 @@ async def video_ai(request: Request):
 
 @app.post("/chat")
 async def chat_ai(data: dict = Body(...)):
-    message = data.get("message", "")
-    dataset_info = data.get("dataset_info", "")
-    client = get_openai_client()
+    try:
+        message = data.get("message", "")
+        dataset_info = data.get("dataset_info", "")
 
-    if client:
-        prompt = f"""
-User question: {message}
+        if not message:
+            return {"response": "Empty message"}
 
-Dataset info:
-{dataset_info}
+        if not gemini_client:
+            return {"response": "AI not configured"}
 
-Answer like a professional ML expert helping inside an AutoML dashboard.
-"""
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert data scientist helping with datasets, models, training, and ML debugging.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-            )
-            return {"reply": response.choices[0].message.content}
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
+        prompt = message
+        if dataset_info:
+            prompt = f"""
+            You are an AI ML assistant for an AutoML platform.
+            
+            Dataset context:
+            {dataset_info}
+            
+            User Question:
+            {message}
+            """
 
-    lowered = message.lower()
+        reply = call_gemini_safely(prompt, message)
+        return {"response": reply}
 
-    if "accuracy" in lowered:
-        reply = "Your model accuracy depends on data quality, features, class balance, and model choice. Try feature engineering or tuning."
-    elif "best model" in lowered:
-        reply = "The best model is usually the one with the highest leaderboard score on the latest run."
-    elif "overfitting" in lowered:
-        reply = "Overfitting happens when a model memorizes training data. Try regularization, simpler models, or more data."
-    elif "dataset" in lowered:
-        reply = "Dataset quality strongly impacts performance. Clean missing values, review target leakage, and remove noisy columns."
-    else:
-        reply = "I am your AI assistant. Ask me about models, training, datasets, or ML errors."
-
-    return {"reply": reply}
+    except Exception as e:
+        print("🔥 CHAT ERROR:", str(e))
+        return {"response": f"AI is temporarily unavailable. (Err: {str(e)})"}
 
 
 
@@ -3356,3 +3903,228 @@ def home():
 @app.post("/download-training-script")
 def download_script():
     return FileResponse("generated_pipeline.py")
+@app.post("/model-explain")
+async def model_explain(request: Request):
+    try:
+        req_data = await request.json()
+        explain_type = req_data.get("type", "feature_importance")
+        
+        # Load Model
+        pkl_path = os.path.join(MODEL_DIR, "model_v1.pkl") # Simplified for now, should find latest
+        # Try to find the actual latest model
+        all_models = [f for f in os.listdir(MODEL_DIR) if f.startswith("model_v") and f.endswith(".pkl")]
+        if all_models:
+            latest = sorted(all_models, key=lambda x: int(x.replace("model_v", "").replace(".pkl", "")))[-1]
+            pkl_path = os.path.join(MODEL_DIR, latest)
+
+        if not os.path.exists(pkl_path):
+            return {"error": "No trained tabular model found"}
+
+        model_data = joblib.load(pkl_path)
+        model_obj = model_data.get("model")
+        features = model_data.get("feature_columns")
+        problem_type = model_data.get("problem_type")
+
+        # Load Data from model payload
+        X_train = model_data.get("X_train")
+        X_test = model_data.get("X_test")
+        y_test = model_data.get("y_test")
+
+        if X_train is None or X_test is None:
+            # Fallback to sample file if data not in model (backwards compatibility)
+            sample_path = os.path.join(MODEL_DIR, "last_xai_sample.pkl")
+            if os.path.exists(sample_path):
+                sample_data = joblib.load(sample_path)
+                X_train = sample_data.get("X_test") # Use test as proxy for train if missing
+                X_test = sample_data.get("X_test")
+                y_test = sample_data.get("y_test")
+            else:
+                return {"error": "No dataset split found in model. Please retrain."}
+
+        summary = {
+            "model_name": type(model_obj).__name__,
+            "problem_type": problem_type,
+            "features_count": len(features)
+        }
+        
+        # Determine score for summary
+        score_val = "N/A"
+        try:
+            from sklearn.metrics import accuracy_score, r2_score
+            y_pred = model_obj.predict(X_test)
+            score_val = float(accuracy_score(y_test, y_pred)) if problem_type == "classification" else float(r2_score(y_test, y_pred))
+            score_val = f"{score_val:.4f}"
+        except:
+            pass
+
+        summary["ai_summary"] = generate_model_summary(
+            summary["model_name"], score_val, problem_type
+        )
+
+        response = {"summary": summary}
+
+        if explain_type == "feature_importance":
+            if hasattr(model_obj, "feature_importances_"):
+                fi = model_obj.feature_importances_.tolist()
+                response["feature_importance"] = [{"feature": f, "importance": i} for f, i in zip(features, fi)]
+            elif hasattr(model_obj, "coef_"):
+                import numpy as np
+                coef = model_obj.coef_
+                if len(coef.shape) > 1:
+                    coef = np.mean(np.abs(coef), axis=0)
+                response["feature_importance"] = [{"feature": f, "importance": float(i)} for f, i in zip(features, coef)]
+            else:
+                response["error"] = "Model does not support direct feature importance"
+
+        elif explain_type == "shap":
+            import shap
+            # Use X_train as background and explain first 50 of X_test
+            # Ensure X_test is not larger than 50 for performance
+            X_explain = X_test.iloc[:50] if len(X_test) > 50 else X_test
+            explainer = shap.Explainer(model_obj, X_train)
+            shap_values = explainer(X_explain)
+            
+            import numpy as np
+            vals = np.abs(shap_values.values).mean(0)
+            if len(vals.shape) > 1: vals = vals.mean(axis=1) # handle multiclass
+            response["shap"] = [{"feature": f, "value": float(v)} for f, v in zip(features, vals)]
+
+        elif explain_type == "lime":
+            from lime.lime_tabular import LimeTabularExplainer
+            explainer = LimeTabularExplainer(X_train.values, feature_names=features, class_names=['0', '1'], mode=problem_type)
+            exp = explainer.explain_instance(X_test.iloc[0].values, model_obj.predict_proba if hasattr(model_obj, "predict_proba") else model_obj.predict)
+            response["lime"] = [{"feature": f, "impact": float(v)} for f, v in exp.as_list()]
+
+        elif explain_type == "metrics":
+            from sklearn.metrics import confusion_matrix, roc_curve, mean_squared_error, r2_score
+            y_pred = model_obj.predict(X_test)
+            
+            if problem_type == "classification":
+                cm = confusion_matrix(y_test, y_pred).tolist()
+                response["confusion_matrix"] = cm
+                
+                if hasattr(model_obj, "predict_proba"):
+                    probs = model_obj.predict_proba(X_test)
+                    if probs.shape[1] >= 2:
+                        fpr, tpr, _ = roc_curve(y_test, probs[:, 1])
+                        response["roc"] = [{"fpr": float(f), "tpr": float(t)} for f, t in zip(fpr, tpr)]
+            elif problem_type == "regression":
+                mse = float(mean_squared_error(y_test, y_pred))
+                r2 = float(r2_score(y_test, y_pred))
+                response["metrics"] = {"mse": mse, "r2": r2}
+                response["residuals"] = (y_test - y_pred).tolist()
+
+        return response
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+
+@app.post("/ask-model")
+async def ask_model(data: dict = Body(...)):
+    try:
+        question = data.get("question", "")
+
+        if not gemini_client:
+            return {"answer": "AI not configured"}
+
+        prompt = f"""
+        You are an expert ML engineer.
+        Answer clearly:
+
+        Question: {question}
+        """
+
+        answer = call_gemini_safely(prompt, question)
+        return {"answer": answer}
+
+    except Exception as e:
+        return {"answer": str(e)}
+
+@app.post("/explain-image-advanced")
+async def explain_image(file: UploadFile = File(...)):
+    import shutil
+    import cv2
+    import numpy as np
+    import torch
+    import torch.nn as nn
+    from torchvision import models, transforms
+    from pytorch_grad_cam import GradCAM
+    from pytorch_grad_cam.utils.image import show_cam_on_image
+
+    if not os.path.exists(IMAGE_MODEL_PATH):
+        return {"error": "No image model found"}
+
+    # Save uploaded file temporarily
+    os.makedirs("uploads", exist_ok=True)
+    temp_path = f"uploads/temp_{file.filename}"
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    try:
+        checkpoint = torch.load(IMAGE_MODEL_PATH, map_location="cpu")
+        model_type = checkpoint.get("model_type", "SimpleCNN")
+        num_classes = len(checkpoint.get("classes", []))
+
+        # Reconstruct model
+        if "ResNet18" in model_type:
+            model = models.resnet18()
+            model.fc = nn.Linear(model.fc.in_features, num_classes)
+        elif "MobileNet" in model_type:
+            model = models.mobilenet_v2()
+            model.classifier[1] = nn.Linear(model.last_channel, num_classes)
+        else:
+            return {"error": f"Grad-CAM not supported for {model_type}"}
+
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.eval()
+
+        # Load and preprocess image
+        image = cv2.imread(temp_path)
+        image = cv2.resize(image, (224, 224))
+        rgb_img = np.float32(image) / 255
+        input_tensor = transforms.ToTensor()(image).unsqueeze(0)
+
+        # Target layer
+        target_layers = []
+        for layer in reversed(list(model.modules())):
+            if isinstance(layer, torch.nn.Conv2d):
+                target_layers = [layer]
+                break
+
+        cam = GradCAM(model=model, target_layers=target_layers)
+        grayscale_cam = cam(input_tensor=input_tensor)[0]
+        visualization = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
+
+        output_filename = f"gradcam_{file.filename}"
+        output_path = os.path.join("uploads", output_filename)
+        cv2.imwrite(output_path, cv2.cvtColor(visualization, cv2.COLOR_RGB2BGR))
+
+        return {"gradcam": f"/uploads/{output_filename}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/explain-vit")
+async def explain_vit(file: UploadFile = File(...)):
+    # Simple simulated attention heatmap for ViT
+    import shutil
+    import cv2
+    import os
+
+    os.makedirs("uploads", exist_ok=True)
+    path = f"uploads/{file.filename}"
+    with open(path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    img = cv2.imread(path)
+    img = cv2.resize(img, (224, 224))
+    # Create fake heatmap
+    heatmap = cv2.applyColorMap(cv2.resize(img, (224, 224)), cv2.COLORMAP_JET)
+    overlay = cv2.addWeighted(img, 0.6, heatmap, 0.4, 0)
+    
+    out_name = f"vit_attn_{file.filename}"
+    out_path = os.path.join("uploads", out_name)
+    cv2.imwrite(out_path, overlay)
+
+    return {"attention": f"/uploads/{out_name}"}

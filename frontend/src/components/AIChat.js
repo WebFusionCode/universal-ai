@@ -22,8 +22,8 @@ export default function AIChat() {
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setLoading(true);
     try {
-      const res = await API.post('/api/chat', { message: userMsg, dataset_info: '' });
-      setMessages(prev => [...prev, { role: 'assistant', text: res.data.reply || 'No response.' }]);
+      const res = await API.post('/chat', { message: userMsg, dataset_info: '' });
+      setMessages(prev => [...prev, { role: 'assistant', text: res.data.response || 'No response.' }]);
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', text: 'Failed to respond. Try again.' }]);
     } finally { setLoading(false); }

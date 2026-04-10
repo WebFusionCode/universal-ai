@@ -48,7 +48,7 @@ export default function Leaderboard() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/[.08]">
-                    {['Rank', 'Model', 'Score', 'Time (s)'].map(h => (
+                    {['Rank', 'Model', 'Score', 'Loss', 'Time (s)'].map(h => (
                       <th key={h} className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-[0.15em] uppercase font-normal">{h}</th>
                     ))}
                   </tr>
@@ -63,6 +63,7 @@ export default function Leaderboard() {
                         <span className="font-mono text-[13px] text-[#B7FF4A] font-bold">{m.score != null ? m.score.toFixed(4) : 'N/A'}</span>
                         {m.rank === 1 && <span className="ml-2 font-mono text-[9px] text-[#B7FF4A]/60 tracking-wider uppercase border border-[#B7FF4A]/20 px-1.5 py-0.5">Best</span>}
                       </td>
+                      <td className="px-6 py-4 font-mono text-[13px] text-[#FF6B6B] font-bold">{m.loss != null ? m.loss.toFixed(4) : 'N/A'}</td>
                       <td className="px-6 py-4 font-mono text-[12px] text-white/40">{m.time != null ? m.time.toFixed(2) : '-'}</td>
                     </motion.tr>
                   ))}

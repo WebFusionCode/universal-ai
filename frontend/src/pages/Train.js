@@ -1,88 +1,115 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
-import { Upload, FileText, Target, Zap, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  Upload, FileText, Target, Zap, CheckCircle2, AlertCircle,
+  Download, Trophy, Brain, BarChart3, Clock
+} from 'lucide-react';
 import API from '../lib/api';
 
-const safeNumber = (val) =>
-  typeof val === 'number' ? val.toFixed(4) : 'N/A';
+const safeNumber = (val, decimals = 4) =>
+  (val !== null && val !== undefined && typeof val === 'number') ? val.toFixed(decimals) : 'N/A';
+
+const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
 export default function Train() {
   const navigate = useNavigate();
+  const wsRef = useRef(null);
+
   const [step, setStep] = useState(1);
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [targetColumn, setTargetColumn] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [trainingComplete, setTrainingComplete] = useState(false);
   const [result, setResult] = useState(null);
-  const [bestModel, setBestModel] = useState(null);
-  const [score, setScore] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [progressStatus, setProgressStatus] = useState('');
+  const [selectedModel, setSelectedModel] = useState('auto');
+
+  // Connect to WebSocket for live progress
+  useEffect(() => {
+    if (loading) {
+      try {
+        const ws = new WebSocket(`${API_BASE.replace('http', 'ws')}/ws/progress`);
+        ws.onmessage = (e) => {
+          const data = JSON.parse(e.data);
+          setProgress(data.progress || 0);
+          setProgressStatus(data.status || '');
+        };
+        wsRef.current = ws;
+      } catch (_) {}
+    } else {
+      wsRef.current?.close();
+    }
+    return () => wsRef.current?.close();
+  }, [loading]);
 
   const handleFileSelect = async (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
-
     const isZip = selectedFile.name.endsWith('.zip');
     setFile(selectedFile);
     setError('');
     setLoading(true);
+    setProgress(5);
+    setProgressStatus('Reading file...');
 
     try {
       if (isZip) {
-        // For ZIP files (images), skip preview and go to step 2
         setPreview({ columns: [], preview: [], is_image: true });
         setStep(2);
       } else {
-        // For CSV/Excel files, get preview
         const formData = new FormData();
         formData.append('file', selectedFile);
-
         const res = await API.post('/preview', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
-
         setPreview(res.data || { columns: [], preview: [] });
+        if (res.data?.suggested_target_columns?.length > 0) {
+          setTargetColumn(res.data.suggested_target_columns[0]);
+        }
         setStep(2);
       }
     } catch (err) {
       setError(err.response?.data?.detail || err.response?.data?.error || 'Failed to preview dataset');
     } finally {
       setLoading(false);
+      setProgress(0);
     }
   };
 
   const handleTrain = async () => {
     const isZip = file?.name.endsWith('.zip');
-
     if (!isZip && !targetColumn) {
       setError('Please select a target column');
       return;
     }
-
     setLoading(true);
     setError('');
+    setProgress(10);
+    setProgressStatus('Uploading...');
 
     try {
       const formData = new FormData();
       formData.append('file', file);
-      if (!isZip) {
-        formData.append('target_column', targetColumn);
-      }
-      formData.append('dataset_type', isZip ? 'image' : 'tabular');
+      if (!isZip) formData.append('target_column', targetColumn);
+      formData.append('model_name', selectedModel);
 
       const res = await API.post('/train', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-
       const data = res.data;
-      console.log("TRAIN RESPONSE:", data);
+      console.log('TRAIN RESPONSE:', data);
 
+      if (data.error) {
+        setError(data.error + (data.hint ? ` — ${data.hint}` : ''));
+        return;
+      }
+
+      setProgress(100);
+      setProgressStatus('Complete!');
       setResult(data);
-      setBestModel(data?.best_model ?? null);
-      setScore(data?.score ?? null);
-      setTrainingComplete(true);
       setStep(3);
     } catch (err) {
       setError(err.response?.data?.detail || err.response?.data?.error || 'Training failed');
@@ -92,31 +119,26 @@ export default function Train() {
   };
 
   const resetForm = () => {
-    setStep(1);
-    setFile(null);
-    setPreview(null);
-    setTargetColumn('');
-    setTrainingComplete(false);
-    setResult(null);
-    setBestModel(null);
-    setScore(null);
-    setError('');
+    setStep(1); setFile(null); setPreview(null);
+    setTargetColumn(''); setResult(null);
+    setError(''); setProgress(0); setProgressStatus('');
   };
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-white">Train Model</h1>
             <p className="font-mono text-[11px] text-white/40 tracking-wider uppercase mt-1">
-              Upload dataset and train ML models automatically
+              Upload • Auto-detect • Train • Evaluate
             </p>
           </div>
         </div>
 
-        {/* Progress Steps */}
+        {/* Step Indicator */}
         <div className="flex items-center gap-4">
           {[
             { num: 1, label: 'Upload', icon: Upload },
@@ -125,24 +147,38 @@ export default function Train() {
           ].map(({ num, label, icon: Icon }) => (
             <div key={num} className="flex items-center gap-2">
               <div className={`flex items-center justify-center w-8 h-8 rounded-full border ${
-                step >= num 
-                  ? 'bg-[#B7FF4A] border-[#B7FF4A] text-[#0a0a0a]' 
-                  : 'bg-transparent border-white/20 text-white/40'
+                step >= num ? 'bg-[#B7FF4A] border-[#B7FF4A] text-[#0a0a0a]' : 'bg-transparent border-white/20 text-white/40'
               }`}>
                 <span className="font-mono text-xs font-bold">{num}</span>
               </div>
-              <span className={`font-mono text-[10px] uppercase tracking-wider ${
-                step >= num ? 'text-white' : 'text-white/40'
-              }`}>{label}</span>
+              <span className={`font-mono text-[10px] uppercase tracking-wider ${step >= num ? 'text-white' : 'text-white/40'}`}>{label}</span>
               {num < 3 && <div className={`h-[1px] w-8 ${step > num ? 'bg-[#B7FF4A]' : 'bg-white/20'}`} />}
             </div>
           ))}
         </div>
 
-        {/* Error Display */}
+        {/* Progress Bar */}
+        {loading && (
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="font-mono text-[10px] text-white/40 uppercase tracking-wider animate-pulse">
+                ⏳ {progressStatus || 'Training in progress...'}
+              </span>
+              <span className="font-mono text-[10px] text-[#B7FF4A]">{progress}%</span>
+            </div>
+            <div className="w-full h-1.5 bg-white/[.06] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#B7FF4A] rounded-full transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
         {error && (
           <div className="border border-[#FF5C7A]/20 bg-[#FF5C7A]/5 px-4 py-3 flex items-start gap-3">
-            <AlertCircle size={16} className="text-[#FF5C7A] mt-0.5" />
+            <AlertCircle size={16} className="text-[#FF5C7A] mt-0.5 shrink-0" />
             <span className="font-mono text-[11px] text-[#FF5C7A]">{error}</span>
           </div>
         )}
@@ -154,25 +190,14 @@ export default function Train() {
               <Upload size={48} className="text-[#B7FF4A] mx-auto mb-4" />
               <h3 className="font-display text-lg font-bold uppercase text-white mb-2">Upload Dataset</h3>
               <p className="font-mono text-[11px] text-white/40 mb-6">
-                CSV, Excel, or ZIP (for images) supported
+                CSV · Excel · ZIP (images) — type auto-detected
               </p>
               <label className="cursor-pointer inline-block">
                 <div className="px-6 py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] transition-all">
                   Select File
                 </div>
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.zip"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  disabled={loading}
-                />
+                <input type="file" accept=".csv,.xlsx,.zip" onChange={handleFileSelect} className="hidden" disabled={loading} />
               </label>
-              {loading && (
-                <p className="font-mono text-[11px] text-[#B7FF4A] mt-4 animate-pulse">
-                  Processing file...
-                </p>
-              )}
             </div>
           </div>
         )}
@@ -180,13 +205,11 @@ export default function Train() {
         {/* Step 2: Configure */}
         {step === 2 && preview && (
           <div className="space-y-6">
-            {/* Dataset Preview */}
+            {/* Stats */}
             <div className="border border-white/[.08] bg-[#111] p-6">
               <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
-                <FileText size={16} className="text-[#B7FF4A]" />
-                Dataset Preview
+                <FileText size={16} className="text-[#B7FF4A]" /> Dataset Preview
               </h3>
-              
               <div className="grid grid-cols-3 gap-4 mb-6">
                 <div>
                   <div className="font-mono text-[10px] text-white/40 uppercase mb-1">Rows</div>
@@ -197,21 +220,19 @@ export default function Train() {
                   <div className="font-mono text-xl text-white font-bold">{preview.columns?.length || 0}</div>
                 </div>
                 <div>
-                  <div className="font-mono text-[10px] text-white/40 uppercase mb-1">Type</div>
-                  <div className="font-mono text-xl text-white font-bold capitalize">{preview.problem_type || 'Auto'}</div>
+                  <div className="font-mono text-[10px] text-white/40 uppercase mb-1">Detected Type</div>
+                  <div className="font-mono text-xl text-[#B7FF4A] font-bold capitalize">{preview.dataset_type || 'Auto'}</div>
                 </div>
               </div>
 
               {/* Preview Table */}
-              {preview.preview && preview.preview.length > 0 && (
+              {preview.preview?.length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="w-full border border-white/[.08]">
                     <thead>
                       <tr className="bg-white/[.03]">
                         {Object.keys(preview.preview[0]).map((col) => (
-                          <th key={col} className="px-4 py-2 text-left font-mono text-[10px] text-white/60 uppercase">
-                            {col}
-                          </th>
+                          <th key={col} className="px-4 py-2 text-left font-mono text-[10px] text-white/60 uppercase">{col}</th>
                         ))}
                       </tr>
                     </thead>
@@ -219,9 +240,7 @@ export default function Train() {
                       {preview.preview.map((row, idx) => (
                         <tr key={idx} className="border-t border-white/[.08]">
                           {Object.values(row).map((val, i) => (
-                            <td key={i} className="px-4 py-2 font-mono text-[11px] text-white/80">
-                              {String(val)}
-                            </td>
+                            <td key={i} className="px-4 py-2 font-mono text-[11px] text-white/80">{String(val ?? '')}</td>
                           ))}
                         </tr>
                       ))}
@@ -231,31 +250,77 @@ export default function Train() {
               )}
             </div>
 
-            {/* Target Column Selection */}
+            {/* Target Selection */}
             <div className="border border-white/[.08] bg-[#111] p-6">
               <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
-                <Target size={16} className="text-[#B7FF4A]" />
-                Select Target Column
+                <Target size={16} className="text-[#B7FF4A]" /> Target Column
               </h3>
-              
-              {!preview?.is_image && (
-                <select
-                  value={targetColumn}
-                  onChange={(e) => setTargetColumn(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[13px] focus:outline-none focus:border-[#B7FF4A]/40 transition-all"
-                  data-testid="target-column-select"
-                >
-                  <option value="">Select target column...</option>
-                  {Array.isArray(preview?.columns) && preview.columns.map((col) => (
-                    <option key={col} value={col}>{col}</option>
-                  ))}
-                </select>
-              )}
-              {preview?.is_image && (
+
+              {!preview?.is_image ? (
+                <div className="space-y-3">
+                  <select
+                    value={targetColumn}
+                    onChange={(e) => setTargetColumn(e.target.value)}
+                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[13px] focus:outline-none focus:border-[#B7FF4A]/40 transition-all"
+                    data-testid="target-column-select"
+                  >
+                    <option value="">Select target column...</option>
+                    {Array.isArray(preview?.columns) && preview.columns.map((col) => (
+                      <option key={col} value={col}>{col}</option>
+                    ))}
+                  </select>
+                  {targetColumn && (
+                    <p className="font-mono text-[10px] text-[#B7FF4A]">✓ Target: <strong>{targetColumn}</strong></p>
+                  )}
+                </div>
+              ) : (
                 <div className="px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[13px]">
-                  📁 Image dataset detected - ready to train CNN
+                  📁 Image dataset detected — Neural network tournament will run
                 </div>
               )}
+
+              {/* Model Selection */}
+              <div className="mt-6 space-y-3">
+                <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
+                  <Brain size={16} className="text-[#B7FF4A]" /> Model Selection
+                </h3>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[13px] focus:outline-none focus:border-[#B7FF4A]/40 transition-all"
+                >
+                  <option value="auto">Auto (Compare All Models)</option>
+                  
+                  {/* TABULAR (Classification/Regression) */}
+                  {!preview?.is_image && (
+                    <>
+                      <optgroup label="Tabular Models">
+                        <option value="RandomForest">RandomForest</option>
+                        <option value="LogisticRegression">LogisticRegression</option>
+                        <option value="LinearRegression">LinearRegression</option>
+                        <option value="SVM">SVM / SVR</option>
+                        <option value="KNN">KNN</option>
+                        <option value="DecisionTree">DecisionTree</option>
+                      </optgroup>
+                    </>
+                  )}
+
+                  {/* IMAGE */}
+                  {preview?.is_image && (
+                    <>
+                      <optgroup label="Image Models">
+                        <option value="SimpleCNN">SimpleCNN</option>
+                        <option value="ResNet18">ResNet18</option>
+                        <option value="ViT">ViT (Vision Transformer)</option>
+                        <option value="MobileNet">MobileNet</option>
+                      </optgroup>
+                    </>
+                  )}
+                </select>
+                <p className="font-mono text-[10px] text-white/30 uppercase tracking-wider">
+                  {selectedModel === 'auto' ? 'Tournament mode: All compatible models will be tested.' : `Fixed mode: Training only ${selectedModel}.`}
+                </p>
+              </div>
 
               <div className="flex gap-3 mt-6">
                 <button
@@ -281,32 +346,188 @@ export default function Train() {
 
         {/* Step 3: Results */}
         {step === 3 && result && (
-          <div className="border border-white/[.08] bg-[#111] p-6">
-            <div className="text-center mb-6">
-              <CheckCircle2 size={48} className="text-[#B7FF4A] mx-auto mb-4" />
-              <h3 className="font-display text-lg font-bold uppercase text-white mb-2">Training Complete!</h3>
+          <div className="space-y-6">
+            {/* Success Banner */}
+            <div className="border border-[#B7FF4A]/20 bg-[#B7FF4A]/5 px-6 py-4 flex items-center gap-3">
+              <CheckCircle2 size={20} className="text-[#B7FF4A]" />
+              <div>
+                <p className="font-mono text-[12px] text-[#B7FF4A] font-bold">Training Complete!</p>
+                <p className="font-mono text-[10px] text-white/40 mt-0.5 uppercase">
+                  {result.problem_type} · {result.dataset_type} · {result.rows ?? '-'} rows
+                </p>
+              </div>
             </div>
 
-            {/* Results Grid */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="border border-white/[.08] bg-white/[.02] p-4">
-                <div className="font-mono text-[10px] text-white/40 uppercase mb-1">Best Model</div>
-                <div className="font-mono text-xl text-[#B7FF4A] font-bold">{bestModel || "N/A"}</div>
-              </div>
-              <div className="border border-white/[.08] bg-white/[.02] p-4">
-                <div className="font-mono text-[10px] text-white/40 uppercase mb-1">Score</div>
-                <div className="font-mono text-xl text-[#B7FF4A] font-bold">
-                  {safeNumber(score)}
+            {/* Metrics Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: 'Best Model', value: result.best_model || 'N/A', icon: Trophy, color: '#B7FF4A' },
+                { label: 'Score', value: safeNumber(result.score), icon: BarChart3, color: '#6AA7FF' },
+                { label: 'Loss', value: safeNumber(result.loss), icon: Zap, color: '#FF6B6B' },
+                { label: 'Problem Type', value: result.problem_type || 'N/A', icon: Brain, color: '#FF6B9D' },
+                { label: 'Dataset Rows', value: result.rows ?? 'N/A', icon: Clock, color: '#4FD1C5' }
+              ].map(({ label, value, icon: Icon, color }) => (
+                <div key={label} className="border border-white/[.08] bg-[#111] p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Icon size={13} style={{ color }} />
+                    <div className="font-mono text-[10px] text-white/40 uppercase">{label}</div>
+                  </div>
+                  <div className="font-mono text-lg font-bold" style={{ color }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Extra metrics (MAE, accuracy, R2, etc.) */}
+            {result.metrics && Object.keys(result.metrics).length > 0 && (
+              <div className="border border-white/[.08] bg-[#111] p-5">
+                <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
+                  <BarChart3 size={14} className="text-[#B7FF4A]" /> Detailed Metrics
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {Object.entries(result.metrics).map(([key, val]) => (
+                    <div key={key} className="bg-white/[.02] border border-white/[.06] p-3">
+                      <div className="font-mono text-[10px] text-white/40 uppercase mb-1">{key.replace(/_/g, ' ')}</div>
+                      <div className="font-mono text-base text-[#B7FF4A] font-bold">{safeNumber(val)}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
+
+            {/* Leaderboard */}
+            {Array.isArray(result.leaderboard) && result.leaderboard.length > 0 && (
+              <div className="border border-white/[.08] bg-[#111] p-5">
+                <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
+                  <Trophy size={14} className="text-[#B7FF4A]" /> Model Leaderboard
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-white/[.08]">
+                        {['Rank', 'Model', 'Score', 'Loss', 'Time (s)'].map(h => (
+                          <th key={h} className="px-4 py-2 text-left font-mono text-[10px] text-white/40 uppercase font-normal">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.leaderboard.map((m, i) => (
+                        <tr
+                          key={i}
+                          className={`border-b border-white/[.04] transition-colors ${i === 0 ? 'bg-[#B7FF4A]/[.04]' : 'hover:bg-white/[.02]'}`}
+                        >
+                          <td className="px-4 py-2.5 font-mono text-[11px] text-white/40">
+                            {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+                          </td>
+                          <td className={`px-4 py-2.5 font-mono text-[12px] font-bold ${i === 0 ? 'text-[#B7FF4A]' : 'text-white/80'}`}>
+                            {m.model}
+                          </td>
+                          <td className="px-6 py-4 font-mono text-[12px] text-[#B7FF4A]">
+                            {safeNumber(m.score)}
+                          </td>
+                           <td className="px-6 py-4 font-mono text-[12px] text-[#FF6B6B]">
+                            {safeNumber(m.loss)}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-[11px] text-white/30">
+                            {m.time !== null && m.time !== undefined ? safeNumber(m.time, 2) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Vertical Model Comparisons */}
+                <div className="mt-8 space-y-4">
+                  <h4 className="font-mono text-[10px] text-white/30 uppercase tracking-[0.2em] mb-4">Detailed Comparisons</h4>
+                  {result.all_models?.map((m) => (
+                    <div key={m.model} className="space-y-1.5">
+                      <div className="flex justify-between items-end">
+                        <span className="font-mono text-[11px] text-white/80">{m.model}</span>
+                        <span className="font-mono text-[11px] text-[#B7FF4A]">{safeNumber(m.score)}</span>
+                      </div>
+                      <div className="w-full h-1 bg-white/[.04] rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-white/20 rounded-full"
+                          style={{ width: `${Math.min(100, (m.score > 0 ? m.score : 0) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI Insights */}
+            {Array.isArray(result.ai_insights) && result.ai_insights.length > 0 && (
+              <div className="border border-white/[.08] bg-[#111] p-5">
+                <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
+                  <Brain size={14} className="text-[#B7FF4A]" /> AI Insights
+                </h3>
+                <div className="space-y-2">
+                  {result.ai_insights.map((ins, i) => (
+                    <div key={i} className="flex items-start gap-3 py-2 border-b border-white/[.04] last:border-0">
+                      <span className="text-[#B7FF4A] font-bold shrink-0">→</span>
+                      <p className="font-mono text-[11px] text-white/60">{ins}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Download + Actions */}
+            <div className="border border-white/[.08] bg-[#111] p-5">
+              <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
+                <Download size={14} className="text-[#B7FF4A]" /> Export
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                <a
+                  href={`${API_BASE}/download-code/python`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2 border border-white/[.08] text-white font-mono text-[10px] tracking-wider uppercase hover:border-[#B7FF4A]/40 hover:text-[#B7FF4A] transition-all flex items-center gap-2"
+                >
+                  <Download size={12} /> Python Script
+                </a>
+                <a
+                  href={`${API_BASE}/download-code/notebook`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2 border border-white/[.08] text-white font-mono text-[10px] tracking-wider uppercase hover:border-[#B7FF4A]/40 hover:text-[#B7FF4A] transition-all flex items-center gap-2"
+                >
+                  <Download size={12} /> Notebook
+                </a>
+                <a
+                  href={`${API_BASE}/download-model`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2 bg-[#B7FF4A]/10 border border-[#B7FF4A]/20 text-[#B7FF4A] font-mono text-[10px] tracking-wider uppercase hover:bg-[#B7FF4A]/20 transition-all flex items-center gap-2"
+                >
+                  <Download size={12} /> Model (.pkl)
+                </a>
+                <a
+                  href={`${API_BASE}/download-code/docker`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2 border border-white/[.08] text-white font-mono text-[10px] tracking-wider uppercase hover:border-[#B7FF4A]/40 hover:text-[#B7FF4A] transition-all flex items-center gap-2"
+                >
+                  <Download size={12} /> Docker Package
+                </a>
+              </div>
             </div>
 
+            {/* Navigation */}
             <div className="flex gap-3">
               <button
                 onClick={() => navigate('/experiments')}
                 className="px-6 py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] transition-all"
               >
                 View Experiments
+              </button>
+              <button
+                onClick={() => navigate('/predict')}
+                className="px-6 py-3 border border-[#6AA7FF]/30 text-[#6AA7FF] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#6AA7FF]/10 transition-all"
+              >
+                Run Predictions
               </button>
               <button
                 onClick={resetForm}

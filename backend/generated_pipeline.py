@@ -1,2 +1,2 @@
-# Generated code for NoneType
-print('Training NoneType')
+# Generated code for SVC
+print('Training SVC')
