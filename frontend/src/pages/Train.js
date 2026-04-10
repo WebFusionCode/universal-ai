@@ -26,6 +26,14 @@ export default function Train() {
   const [progress, setProgress] = useState(0);
   const [progressStatus, setProgressStatus] = useState('');
   const [selectedModel, setSelectedModel] = useState('auto');
+  const [hpParams, setHpParams] = useState({
+    epochs: 3,
+    batch_size: 32,
+    lr: 0.001,
+    hidden: 64,
+    layers: 2,
+    n_estimators: 100
+  });
 
   // Connect to WebSocket for live progress
   useEffect(() => {
@@ -95,6 +103,14 @@ export default function Train() {
       formData.append('file', file);
       if (!isZip) formData.append('target_column', targetColumn);
       formData.append('model_name', selectedModel);
+      formData.append('selected_model', selectedModel);
+      formData.append('params', JSON.stringify({
+        [selectedModel]: hpParams,
+        "epochs": hpParams.epochs,
+        "batch_size": hpParams.batch_size,
+        "lr": hpParams.lr,
+        "LSTM": { "hidden": hpParams.hidden, "layers": hpParams.layers, "epochs": hpParams.epochs }
+      }));
 
       const res = await API.post('/train', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -280,46 +296,70 @@ export default function Train() {
               )}
 
               {/* Model Selection */}
-              <div className="mt-6 space-y-3">
-                <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
-                  <Brain size={16} className="text-[#B7FF4A]" /> Model Selection
-                </h3>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[13px] focus:outline-none focus:border-[#B7FF4A]/40 transition-all"
-                >
-                  <option value="auto">Auto (Compare All Models)</option>
-                  
-                  {/* TABULAR (Classification/Regression) */}
-                  {!preview?.is_image && (
-                    <>
-                      <optgroup label="Tabular Models">
-                        <option value="RandomForest">RandomForest</option>
-                        <option value="LogisticRegression">LogisticRegression</option>
-                        <option value="LinearRegression">LinearRegression</option>
-                        <option value="SVM">SVM / SVR</option>
-                        <option value="KNN">KNN</option>
-                        <option value="DecisionTree">DecisionTree</option>
-                      </optgroup>
-                    </>
-                  )}
+              <div className="mt-6 flex flex-col md:flex-row gap-6">
+                <div className="flex-1 space-y-3">
+                  <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
+                    <Brain size={16} className="text-[#B7FF4A]" /> Model Selection
+                  </h3>
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[13px] focus:outline-none focus:border-[#B7FF4A]/40 transition-all"
+                  >
+                    <option value="auto">Auto (Compare All Models)</option>
+                    
+                    {/* TABULAR */}
+                    <optgroup label="Tabular Intelligence">
+                      <option value="rf">Random Forest</option>
+                      <option value="xgb">XGBoost</option>
+                      <option value="catboost">CatBoost</option>
+                      <option value="lr">Linear/Logistic Regression</option>
+                    </optgroup>
 
-                  {/* IMAGE */}
-                  {preview?.is_image && (
-                    <>
-                      <optgroup label="Image Models">
-                        <option value="SimpleCNN">SimpleCNN</option>
-                        <option value="ResNet18">ResNet18</option>
-                        <option value="ViT">ViT (Vision Transformer)</option>
-                        <option value="MobileNet">MobileNet</option>
-                      </optgroup>
-                    </>
-                  )}
-                </select>
-                <p className="font-mono text-[10px] text-white/30 uppercase tracking-wider">
-                  {selectedModel === 'auto' ? 'Tournament mode: All compatible models will be tested.' : `Fixed mode: Training only ${selectedModel}.`}
-                </p>
+                    {/* TIME SERIES */}
+                    <optgroup label="Time Series Forecasting">
+                      <option value="lstm">LSTM (Deep Learning)</option>
+                      <option value="gru">GRU (RNN)</option>
+                      <option value="prophet">Prophet (Meta)</option>
+                    </optgroup>
+
+                    {/* DEEP LEARNING / VISION */}
+                    <optgroup label="Advanced Architectures (Vision)">
+                      <option value="cnn">Simple CNN</option>
+                      <option value="mobilenet">MobileNet</option>
+                      <option value="resnet">ResNet</option>
+                      <option value="efficientnet">EfficientNet</option>
+                      <option value="vit">Vision Transformer</option>
+                      <option value="unet">UNet (Segmentation)</option>
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div className="flex-1 space-y-3">
+                  <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
+                    <Zap size={16} className="text-[#B7FF4A]" /> Hyperparameters
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <span className="font-mono text-[9px] text-white/20 uppercase">Epochs / Estimators</span>
+                      <input 
+                        type="number"
+                        value={hpParams.epochs}
+                        onChange={(e) => setHpParams({...hpParams, epochs: parseInt(e.target.value) || 1, n_estimators: parseInt(e.target.value) || 100})}
+                        className="w-full bg-white/[.02] border border-white/[.08] rounded px-3 py-2 text-white font-mono text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="font-mono text-[9px] text-white/20 uppercase">Batch Size</span>
+                      <input 
+                        type="number"
+                        value={hpParams.batch_size}
+                        onChange={(e) => setHpParams({...hpParams, batch_size: parseInt(e.target.value) || 32})}
+                        className="w-full bg-white/[.02] border border-white/[.08] rounded px-3 py-2 text-white font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-3 mt-6">

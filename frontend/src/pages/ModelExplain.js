@@ -342,6 +342,92 @@ export default function ModelExplain() {
           </div>
         );
 
+      case 'analytics':
+        const logs = data?.training_logs || {};
+        const activeModelName = data?.summary?.model_name || Object.keys(logs)[0];
+        const logData = logs[activeModelName] || { loss: [], accuracy: [] };
+        
+        const chartData = logData.loss.map((l, i) => ({
+          epoch: i + 1,
+          loss: l,
+          accuracy: logData.accuracy[i] || 0
+        }));
+
+        const handleDownload = async () => {
+          try {
+            const res = await API.get('/download-code');
+            const blob = new Blob([res.data.code], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = res.data.filename || 'train_local.py';
+            a.click();
+          } catch (err) {
+            console.error('Download failed', err);
+          }
+        };
+
+        return (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
+                <h3 className="font-display text-sm font-bold uppercase text-[#FF6B6B] mb-6 flex items-center gap-2">
+                  <Activity size={16} /> Loss Trajectory
+                </h3>
+                <div className="h-64">
+                   <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                        <XAxis dataKey="epoch" stroke="#444" fontSize={10} label={{ value: 'Epochs', position: 'insideBottom', offset: -5, fontSize: 8, fill: '#444' }} />
+                        <YAxis stroke="#444" fontSize={10} />
+                        <Tooltip contentStyle={{ backgroundColor: '#000', border: '1px solid #333', fontSize: '10px' }} />
+                        <Line type="monotone" dataKey="loss" stroke="#FF6B6B" strokeWidth={2} dot={{ fill: '#FF6B6B' }} />
+                      </LineChart>
+                   </ResponsiveContainer>
+                </div>
+              </motion.div>
+
+              <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
+                <h3 className="font-display text-sm font-bold uppercase text-[#B7FF4A] mb-6 flex items-center gap-2">
+                   <Target size={16} /> Accuracy Convergence
+                </h3>
+                <div className="h-64">
+                   <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                        <XAxis dataKey="epoch" stroke="#444" fontSize={10} label={{ value: 'Epochs', position: 'insideBottom', offset: -5, fontSize: 8, fill: '#444' }} />
+                        <YAxis stroke="#444" fontSize={10} />
+                        <Tooltip contentStyle={{ backgroundColor: '#000', border: '1px solid #333', fontSize: '10px' }} />
+                        <Line type="monotone" dataKey="accuracy" stroke="#B7FF4A" strokeWidth={2} dot={{ fill: '#B7FF4A' }} />
+                      </LineChart>
+                   </ResponsiveContainer>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Neural Artifacts / Download Section */}
+            <motion.div variants={fadeUp} className="border border-[#B7FF4A]/20 bg-[#B7FF4A]/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6">
+               <div className="flex gap-4">
+                  <div className="w-12 h-12 bg-[#B7FF4A]/20 flex items-center justify-center rounded-lg">
+                    <Zap className="text-[#B7FF4A]" size={24} />
+                  </div>
+                  <div>
+                    <h4 className="font-display text-lg font-bold text-white uppercase tracking-tight">Neural Export (Local SDK)</h4>
+                    <p className="font-mono text-[10px] text-white/40 max-w-md">
+                      Generate a standalone Python environment with the exact architecture and parameters discovered during this AutoML cycle.
+                    </p>
+                  </div>
+               </div>
+               <button 
+                onClick={handleDownload}
+                className="px-8 py-4 bg-[#B7FF4A] text-black font-mono text-[11px] font-bold uppercase tracking-widest hover:scale-105 transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(183,255,74,0.3)]"
+               >
+                 <Upload size={14} className="rotate-180" /> Download Neural Script
+               </button>
+            </motion.div>
+          </div>
+        );
+
       default:
         return null;
     }
@@ -364,7 +450,7 @@ export default function ModelExplain() {
           </div>
           
           <div className="flex gap-1 bg-[#111] p-1 border border-white/5">
-            {['summary', 'shap', 'metrics', 'image'].map(tab => (
+            {['summary', 'shap', 'metrics', 'analytics', 'image'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}

@@ -24,6 +24,7 @@ shap
 plotly
 groq
 catboost
+xgboost
 timm
 transformers
 opencv-python-headless
