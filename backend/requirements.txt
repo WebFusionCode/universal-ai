@@ -23,3 +23,7 @@ matplotlib
 shap
 plotly
 groq
+catboost
+timm
+transformers
+opencv-python-headless

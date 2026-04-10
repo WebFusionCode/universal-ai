@@ -15,6 +15,7 @@ import Download from './pages/Download';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import ModelExplain from './pages/ModelExplain';
+import TestModel from './pages/TestModel';
 import ImageAI from './pages/ImageAI';
 import AudioAI from './pages/AudioAI';
 import VideoAI from './pages/VideoAI';
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="/download" element={<ProtectedRoute><Download /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/model-explain" element={<ProtectedRoute><ModelExplain /></ProtectedRoute>} />
+        <Route path="/test-model" element={<ProtectedRoute><TestModel /></ProtectedRoute>} />
         <Route path="/image-ai" element={<ProtectedRoute><ImageAI /></ProtectedRoute>} />
         <Route path="/audio-ai" element={<ProtectedRoute><AudioAI /></ProtectedRoute>} />
         <Route path="/video-ai" element={<ProtectedRoute><VideoAI /></ProtectedRoute>} />

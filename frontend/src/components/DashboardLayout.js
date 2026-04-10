@@ -13,6 +13,9 @@ const navItems = [
   { path: '/experiments', label: 'Experiments', icon: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 3h6v7l4 4v1H5v-1l4-4V3z"/><path d="M6 21h12"/></svg>
   )},
+  { path: '/test-model', label: 'Test Model', icon: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+  )},
   { path: '/leaderboard', label: 'Leaderboard', icon: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M6 9H4.5a2.5 2.5 0 010-5H6M18 9h1.5a2.5 2.5 0 000-5H18M4 22h16M18 2H6v7a6 6 0 0012 0V2z"/></svg>
   )},
