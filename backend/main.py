@@ -12,7 +12,7 @@ import random
 import shutil
 import uuid
 import zipfile
-from google import genai
+from groq import Groq
 
 try:
     from dotenv import load_dotenv
@@ -32,10 +32,8 @@ from jose import JWTError, jwt
 import numpy as np
 import pandas as pd
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
-
 # ===== DEPLOYMENT SETTINGS =====
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LIGHTWEIGHT_DEPLOYMENT = False   # for Render free tier
 MAX_LIGHTWEIGHT_ROWS = 10000    # limit dataset size
 
@@ -149,86 +147,58 @@ if not MONGO_URL:
 else:
     print("✅ MONGO_URL found")
 
-# Initialize Gemini
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Initialize Groq
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if GEMINI_API_KEY:
-    print(f"📡 Configuring Gemini with Key: {GEMINI_API_KEY[:6]}...{GEMINI_API_KEY[-4:]}")
-    # New SDK Style (Modern V1)
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1'})
-    print("✅ Gemini AI Initialized (Modern V1 - Gemini 2.0)")
+if GROQ_API_KEY:
+    print(f"📡 Configuring Groq with Key: {GROQ_API_KEY[:6]}...{GROQ_API_KEY[-4:]}")
+    groq_client = Groq(api_key=GROQ_API_KEY)
+    print("✅ Groq AI Initialized (Llama 3)")
 else:
-    print("⚠️ GEMINI_API_KEY not found in .env")
-    gemini_client = None
+    print("⚠️ GROQ_API_KEY not found in .env")
+    groq_client = None
 
-def safe_extract_text(response):
-    """Safely extract text from Gemini response object."""
-    try:
-        if response.text:
-            return response.text
-        return "No text response generated."
-    except Exception:
-        return "AI response parsing failed."
-
-def call_gemini_safely(prompt, original_query=""):
+def call_groq_safely(messages, original_query=""):
     """
-    Robust AI caller with:
-    1. Primary (2.0 Flash)
-    2. 429 Retry (5s sleep)
-    3. Fallback (1.5 Flash)
-    4. Safe String Fallback
+    Robust Groq caller with:
+    1. Primary (Llama 3 70B)
+    2. Retry/Error Handling
+    3. Safe String Fallback
     """
-    if not gemini_client:
-        return "Gemini AI not configured."
+    if not groq_client:
+        return "Groq AI not configured."
 
-    import time
-    
-    # Attempt 1: Gemini 2.0
     try:
-        response = gemini_client.models.generate_content(
-            model="models/gemini-2.0-flash",
-            contents=prompt
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7
         )
-        return safe_extract_text(response)
+        return response.choices[0].message.content
     
     except Exception as e:
-        err_msg = str(e).lower()
-        print(f"⚠️ Gemini 2.0 Failed: {err_msg}")
-        
-        # Scenario: Rate Limit (429) -> Retry
-        if "429" in err_msg:
-            print("⏳ Rate limited. Retrying in 5 seconds...")
-            time.sleep(5)
-            try:
-                response = gemini_client.models.generate_content(
-                    model="models/gemini-2.0-flash",
-                    contents=prompt
-                )
-                return safe_extract_text(response)
-            except Exception as e2:
-                print(f"⚠️ Retry Failed: {str(e2)}")
-
-        # Scenario: Fallback to Gemini 2.0 Flash Lite
-        print("💡 Attempting fallback to Gemini 2.0 Flash Lite...")
+        print(f"⚠️ Groq Failed: {str(e)}")
+        # Simple Retry for common transient errors
+        import time
+        time.sleep(1)
         try:
-            response = gemini_client.models.generate_content(
-                model="models/gemini-2.0-flash-lite",
-                contents=prompt
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages
             )
-            return safe_extract_text(response)
-        except Exception as e3:
-            print(f"❌ Fallback Failed: {str(e3)}")
-            
-    # Final Fallback: Safe UI String
-    return f"AI Assistant is currently calibrating. Your question was: '{original_query or '...'}'"
+            return response.choices[0].message.content
+        except:
+            return f"Deep Intelligence is currently calibrating. Your query was: '{original_query or '...'}'"
+
 
 
 def ask_gemini(prompt):
-    return call_gemini_safely(prompt, "Direct Insight Query")
+    messages = [{"role": "user", "content": prompt}]
+    return call_groq_safely(messages, "Direct Insight Query")
 
 
 def generate_model_summary(model_name, score, problem_type):
-    if not gemini_client:
+    if not groq_client:
         return "AI summary not available"
 
     prompt = f"""
@@ -245,7 +215,8 @@ def generate_model_summary(model_name, score, problem_type):
     - Limitations
     """
 
-    return call_gemini_safely(prompt, f"Explain {model_name}")
+    messages = [{"role": "user", "content": prompt}]
+    return call_groq_safely(messages, f"Explain {model_name}")
 
 print("MONGO_URL:", MONGO_URL)
 
@@ -3860,32 +3831,40 @@ async def video_ai(request: Request):
 async def chat_ai(data: dict = Body(...)):
     try:
         message = data.get("message", "")
+        history = data.get("history", [])
         dataset_info = data.get("dataset_info", "")
 
         if not message:
             return {"response": "Empty message"}
 
-        if not gemini_client:
-            return {"response": "AI not configured"}
+        if not groq_client:
+            return {"response": "AI not configured. Check terminal logs for GROQ_API_KEY."}
 
-        prompt = message
+        # Build conversation
+        messages = [{"role": "system", "content": "You are an AI ML assistant helping with datasets, models, and training."}]
+        
         if dataset_info:
-            prompt = f"""
-            You are an AI ML assistant for an AutoML platform.
-            
-            Dataset context:
-            {dataset_info}
-            
-            User Question:
-            {message}
-            """
+            messages.append({"role": "system", "content": f"Dataset context: {dataset_info}"})
 
-        reply = call_gemini_safely(prompt, message)
+        # Add history (limit to last 5 turns)
+        for msg in history[-5:]:
+            role = "user" if msg.get("role") == "user" else "assistant"
+            messages.append({
+                "role": role,
+                "content": msg.get("content", "")
+            })
+
+        # Add current message
+        messages.append({"role": "user", "content": message})
+
+        # Process with Verified Model
+        reply = call_groq_safely(messages, message)
         return {"response": reply}
 
     except Exception as e:
-        print("🔥 CHAT ERROR:", str(e))
-        return {"response": f"AI is temporarily unavailable. (Err: {str(e)})"}
+        print("🔥 CHAT ERROR:", repr(e))
+        return {"response": "AI temporarily unavailable. Try again."}
+
 
 
 
@@ -4026,7 +4005,7 @@ async def ask_model(data: dict = Body(...)):
     try:
         question = data.get("question", "")
 
-        if not gemini_client:
+        if not groq_client:
             return {"answer": "AI not configured"}
 
         prompt = f"""
@@ -4036,7 +4015,8 @@ async def ask_model(data: dict = Body(...)):
         Question: {question}
         """
 
-        answer = call_gemini_safely(prompt, question)
+        messages = [{"role": "user", "content": prompt}]
+        answer = call_groq_safely(messages, question)
         return {"answer": answer}
 
     except Exception as e:

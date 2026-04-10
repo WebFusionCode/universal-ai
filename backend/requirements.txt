@@ -22,4 +22,4 @@ pillow
 matplotlib
 shap
 plotly
-google-genai
+groq
