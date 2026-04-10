@@ -9,6 +9,7 @@ export default function TestModel() {
   const [error, setError] = useState('');
   const [prediction, setPrediction] = useState(null);
   const [isImage, setIsImage] = useState(false);
+  const [isZip, setIsZip] = useState(false);
 
   const handleFileSelect = (e) => {
     const selectedFile = e.target.files[0];
@@ -16,6 +17,7 @@ export default function TestModel() {
     
     setFile(selectedFile);
     setIsImage(selectedFile.type.startsWith('image/'));
+    setIsZip(selectedFile.name.endsWith('.zip'));
     setError('');
     setPrediction(null);
   };
@@ -33,7 +35,7 @@ export default function TestModel() {
       const formData = new FormData();
       formData.append('file', file);
       
-      const endpoint = isImage ? '/test-image' : '/test-model';
+      const endpoint = isZip ? '/test-zip' : (isImage ? '/test-image' : '/test-model');
       const res = await API.post(endpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -80,13 +82,13 @@ export default function TestModel() {
                     <img src={URL.createObjectURL(file)} alt="Preview" className="w-32 h-32 mx-auto rounded-xl object-cover mb-4" />
                   ) : (
                     <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                      {isImage ? <ImageIcon className="w-8 h-8 text-slate-400" /> : <FileText className="w-8 h-8 text-slate-400" />}
+                      {isZip ? <Zap className="w-8 h-8 text-indigo-400" /> : (isImage ? <ImageIcon className="w-8 h-8 text-slate-400" /> : <FileText className="w-8 h-8 text-slate-400" />)}
                     </div>
                   )}
                   <p className="text-white font-medium mb-1">
                     {file ? file.name : 'Click to upload or drag & drop'}
                   </p>
-                  <p className="text-slate-500 text-sm">CSV, Excel, or Images</p>
+                  <p className="text-slate-500 text-sm">CSV, Excel, Images, or ZIP</p>
                 </div>
               </div>
             </div>
@@ -134,7 +136,7 @@ export default function TestModel() {
                   </p>
                 </div>
 
-                {!isImage && prediction.predictions && (
+                {!isImage && !isZip && prediction.predictions && (
                   <div className="border border-slate-800 rounded-2xl overflow-hidden">
                     <div className="bg-slate-950 p-4 border-b border-slate-800">
                       <p className="text-white font-medium">Batch Predictions ({prediction.count} rows)</p>
@@ -148,6 +150,25 @@ export default function TestModel() {
                       ))}
                       {prediction.count > 10 && (
                         <p className="text-center text-slate-500 pt-4 italic">And {prediction.count - 10} more rows...</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {isZip && prediction.results && (
+                  <div className="border border-slate-800 rounded-2xl overflow-hidden">
+                    <div className="bg-slate-950 p-4 border-b border-slate-800">
+                      <p className="text-white font-medium">Batch Results ({prediction.count} files)</p>
+                    </div>
+                    <div className="p-4 max-h-[300px] overflow-y-auto font-mono text-sm">
+                      {prediction.results.map((r, idx) => (
+                        <div key={idx} className="flex justify-between py-2 border-b border-slate-800/50 last:border-0">
+                          <span className="text-slate-500 truncate mr-4 max-w-[200px]" title={r.file}>{r.file}</span>
+                          <span className="text-[#B7FF4A] font-bold">{r.prediction}</span>
+                        </div>
+                      ))}
+                      {prediction.count > 50 && (
+                        <p className="text-center text-slate-500 pt-4 italic">Showing first 50 results...</p>
                       )}
                     </div>
                   </div>

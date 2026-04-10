@@ -25,6 +25,8 @@ export default function Train() {
   const [result, setResult] = useState(null);
   const [progress, setProgress] = useState(0);
   const [progressStatus, setProgressStatus] = useState('');
+  const [currentModel, setCurrentModel] = useState('');
+  const [epochInfo, setEpochInfo] = useState('');
   const [selectedModel, setSelectedModel] = useState('auto');
   const [hpParams, setHpParams] = useState({
     epochs: 3,
@@ -42,8 +44,25 @@ export default function Train() {
         const ws = new WebSocket(`${API_BASE.replace('http', 'ws')}/ws/progress`);
         ws.onmessage = (e) => {
           const data = JSON.parse(e.data);
-          setProgress(data.progress || 0);
-          setProgressStatus(data.status || '');
+          
+          if (data.progress !== undefined) setProgress(data.progress);
+          if (data.model) setCurrentModel(data.model);
+          if (data.status) setProgressStatus(data.status);
+          
+          if (data.epoch && data.total_epochs) {
+            setEpochInfo(`Epoch ${data.epoch}/${data.total_epochs}`);
+          } else if (data.status === 'starting') {
+            setEpochInfo('Initializing...');
+          } else if (data.status === 'complete') {
+            setEpochInfo('Finalized');
+          }
+          
+          if (data.loss !== undefined || data.accuracy !== undefined || data.r2_score !== undefined) {
+             const loss = data.loss ? `L: ${data.loss.toFixed(4)}` : '';
+             const acc = data.accuracy ? `A: ${data.accuracy.toFixed(4)}` : '';
+             const r2 = data.r2_score ? `R²: ${data.r2_score.toFixed(4)}` : '';
+             setProgressStatus(`${data.status || 'Training'} | ${loss} ${acc} ${r2}`);
+          }
         };
         wsRef.current = ws;
       } catch (_) {}
@@ -138,6 +157,7 @@ export default function Train() {
     setStep(1); setFile(null); setPreview(null);
     setTargetColumn(''); setResult(null);
     setError(''); setProgress(0); setProgressStatus('');
+    setCurrentModel(''); setEpochInfo('');
   };
 
   return (
@@ -175,18 +195,38 @@ export default function Train() {
 
         {/* Progress Bar */}
         {loading && (
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="font-mono text-[10px] text-white/40 uppercase tracking-wider animate-pulse">
-                ⏳ {progressStatus || 'Training in progress...'}
-              </span>
-              <span className="font-mono text-[10px] text-[#B7FF4A]">{progress}%</span>
+          <div className="border border-white/[.08] bg-[#0a0a0a] p-6 space-y-4">
+            <div className="flex justify-between items-end">
+              <div>
+                <div className="font-mono text-[9px] text-[#B7FF4A] uppercase tracking-[0.2em] mb-1 leading-none">
+                   Active Engine
+                </div>
+                <div className="font-display text-lg font-bold text-white uppercase tracking-tight">
+                  {currentModel || 'Neural Processor'}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-mono text-[10px] text-white/40 uppercase mb-1">
+                   {epochInfo || 'In Progress'}
+                </div>
+                <div className="font-mono text-xl text-[#B7FF4A] font-bold">
+                  {progress}%
+                </div>
+              </div>
             </div>
-            <div className="w-full h-1.5 bg-white/[.06] rounded-full overflow-hidden">
+
+            <div className="w-full h-2 bg-white/[.04] rounded-full overflow-hidden">
               <div
-                className="h-full bg-[#B7FF4A] rounded-full transition-all duration-500"
+                className="h-full bg-gradient-to-r from-[#B7FF4A]/40 to-[#B7FF4A] rounded-full transition-all duration-700 ease-out shadow-[0_0_15px_rgba(183,255,74,0.4)]"
                 style={{ width: `${progress}%` }}
               />
+            </div>
+
+            <div className="flex items-center gap-3">
+               <div className="w-1.5 h-1.5 rounded-full bg-[#B7FF4A] animate-ping" />
+               <span className="font-mono text-[10px] text-white/40 uppercase tracking-widest leading-none">
+                 {progressStatus || 'Synchronizing Neural Paths...'}
+               </span>
             </div>
           </div>
         )}

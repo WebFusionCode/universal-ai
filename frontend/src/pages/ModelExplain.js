@@ -355,15 +355,17 @@ export default function ModelExplain() {
 
         const handleDownload = async () => {
           try {
-            const res = await API.get('/download-code');
-            const blob = new Blob([res.data.code], { type: 'text/plain' });
-            const url = window.URL.createObjectURL(blob);
+            // Updated to use the full project ZIP endpoint
+            const res = await API.get('/download-project', { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }));
             const a = document.createElement('a');
             a.href = url;
-            a.download = res.data.filename || 'train_local.py';
+            a.download = 'automl_project.zip';
             a.click();
+            window.URL.revokeObjectURL(url);
           } catch (err) {
             console.error('Download failed', err);
+            setError('Failed to download neural project.');
           }
         };
 
