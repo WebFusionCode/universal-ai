@@ -15,6 +15,10 @@ export default function Leaderboard() {
 
   useEffect(() => { load(); }, [load]);
 
+  const isRegression = String(data?.problem_type || '').toLowerCase().includes('regression');
+  const scoreLabel = isRegression ? 'R² Score' : 'Score';
+  const lossLabel = isRegression ? 'MSE Loss' : 'Loss';
+
   return (
     <DashboardLayout title="Leaderboard">
       <motion.div initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.06 } } }}>
@@ -44,15 +48,15 @@ export default function Leaderboard() {
               ))}
             </motion.div>
 
-            <motion.div variants={fadeUp} className="border border-white/[.06]">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/[.08]">
-                    {['Rank', 'Model', 'Score', 'Loss', 'Time (s)'].map(h => (
-                      <th key={h} className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-[0.15em] uppercase font-normal">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
+	            <motion.div variants={fadeUp} className="border border-white/[.06]">
+	              <table className="w-full">
+	                <thead>
+	                  <tr className="border-b border-white/[.08]">
+	                    {['Rank', 'Model', scoreLabel, lossLabel, 'Time (s)'].map(h => (
+	                      <th key={h} className="px-6 py-3 text-left font-mono text-[10px] text-white/25 tracking-[0.15em] uppercase font-normal">{h}</th>
+	                    ))}
+	                  </tr>
+	                </thead>
                 <tbody>
                   {data.models.map((m, i) => (
                     <motion.tr key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}

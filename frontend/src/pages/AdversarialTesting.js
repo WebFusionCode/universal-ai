@@ -9,10 +9,15 @@ export default function AdversarialTesting() {
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [testType, setTestType] = useState('robustness');
+  const [attackType, setAttackType] = useState('fgsm');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadedSample, setUploadedSample] = useState(null);
   const [results, setResults] = useState(null);
+
+  const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+  const selectedModelObj = models.find((m) => m.id === selectedModel);
+  const isImageModel = selectedModelObj?.type === 'image';
 
   useEffect(() => {
     loadModels();
@@ -58,7 +63,8 @@ export default function AdversarialTesting() {
       const res = await API.post('/adversarial-testing/run', {
         model_id: selectedModel,
         test_type: testType,
-        upload_path: uploadedSample?.path
+        upload_path: uploadedSample?.path,
+        attack_type: attackType
       }).catch(() => ({
         data: {
           robustness_score: '98%',
@@ -132,6 +138,21 @@ export default function AdversarialTesting() {
                 </select>
               </div>
 
+              {isImageModel && (
+                <div>
+                  <label className="font-mono text-[10px] text-white/30 mb-2 block uppercase">Attack Type</label>
+                  <select
+                    value={attackType}
+                    onChange={(e) => setAttackType(e.target.value)}
+                    className="w-full bg-white/5 border border-white/[.06] p-3 text-white font-mono text-[11px] focus:border-[#B7FF4A] outline-none transition"
+                  >
+                    <option value="fgsm">FGSM</option>
+                    <option value="bim">BIM</option>
+                    <option value="pgd">PGD</option>
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="font-mono text-[10px] text-white/30 mb-2 block uppercase">Challenge Sample</label>
                 <label className="w-full block cursor-pointer bg-white/5 border border-white/[.06] p-3 text-white font-mono text-[11px] hover:border-[#B7FF4A] transition">
@@ -204,6 +225,87 @@ export default function AdversarialTesting() {
                     <p className="font-mono text-[11px] text-white/60">
                       {results.uploaded_sample.filename || 'Attached file'}
                     </p>
+                  </div>
+                )}
+
+                {results.attack_result?.images && (
+                  <div className="pt-4 border-t border-white/[.06] space-y-4">
+                    <div>
+                      <p className="font-mono text-[10px] text-white/30 mb-2 uppercase">Attack Output</p>
+                      <p className="font-mono text-[11px] text-white/60 uppercase">
+                        {String(results.attack_result.attack_type || '').toUpperCase()}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <p className="font-mono text-[10px] text-white/30 uppercase">Original</p>
+                        <img
+                          src={`${API_BASE}${results.attack_result.images.original}`}
+                          alt="Original"
+                          className="w-full border border-white/[.06]"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <p className="font-mono text-[10px] text-white/30 uppercase">Adversarial</p>
+                        <img
+                          src={`${API_BASE}${results.attack_result.images.adversarial}`}
+                          alt="Adversarial"
+                          className="w-full border border-white/[.06]"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <p className="font-mono text-[10px] text-white/30 uppercase">Difference</p>
+                        <img
+                          src={`${API_BASE}${results.attack_result.images.difference}`}
+                          alt="Difference Heatmap"
+                          className="w-full border border-white/[.06]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="border border-white/[.06] p-4">
+                        <p className="font-mono text-[10px] text-white/30 mb-2 uppercase">Prediction</p>
+                        <p className="font-mono text-[11px] text-white/70">
+                          Original: <span className="text-white">{results.attack_result.original_prediction?.label}</span>{' '}
+                          ({Math.round((results.attack_result.original_prediction?.confidence || 0) * 100)}%)
+                        </p>
+                        <p className="font-mono text-[11px] text-white/70 mt-1">
+                          After Attack: <span className="text-white">{results.attack_result.adversarial_prediction?.label}</span>{' '}
+                          ({Math.round((results.attack_result.adversarial_prediction?.confidence || 0) * 100)}%)
+                        </p>
+                      </div>
+
+                      <div className="border border-white/[.06] p-4">
+                        <p className="font-mono text-[10px] text-white/30 mb-2 uppercase">Confidence Drop</p>
+                        <p className="font-display text-2xl text-[#B7FF4A]">
+                          -{Math.round((results.attack_result.confidence_drop || 0) * 100)}%
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          <div className="flex justify-between font-mono text-[10px] text-white/40 uppercase">
+                            <span>Original</span>
+                            <span>{Math.round((results.attack_result.original_prediction?.confidence || 0) * 100)}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-white/[.06] overflow-hidden">
+                            <div
+                              className="h-full bg-[#B7FF4A]"
+                              style={{ width: `${Math.round((results.attack_result.original_prediction?.confidence || 0) * 100)}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between font-mono text-[10px] text-white/40 uppercase">
+                            <span>After (orig label)</span>
+                            <span>{Math.round((results.attack_result.original_label_confidence_after_attack || 0) * 100)}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-white/[.06] overflow-hidden">
+                            <div
+                              className="h-full bg-white/50"
+                              style={{ width: `${Math.round((results.attack_result.original_label_confidence_after_attack || 0) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

@@ -1,2 +1,2 @@
-# Generated code for XGBRegressor
-print('Training XGBRegressor')
+# Generated code for RandomForestRegressor
+print('Training RandomForestRegressor')

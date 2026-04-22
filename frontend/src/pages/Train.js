@@ -17,7 +17,9 @@ export default function Train() {
   const wsRef = useRef(null);
 
   const [step, setStep] = useState(1);
+  const [inputMode, setInputMode] = useState('file'); // file | url
   const [file, setFile] = useState(null);
+  const [datasetUrl, setDatasetUrl] = useState('');
   const [preview, setPreview] = useState(null);
   const [targetColumn, setTargetColumn] = useState('');
   const [loading, setLoading] = useState(false);
@@ -93,6 +95,8 @@ export default function Train() {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
     const isZip = selectedFile.name.endsWith('.zip');
+    setInputMode('file');
+    setDatasetUrl('');
     setFile(selectedFile);
     setError('');
     setLoading(true);
@@ -123,21 +127,64 @@ export default function Train() {
     }
   };
 
+  const handleUrlPreview = async () => {
+    const url = (datasetUrl || '').trim();
+    if (!url) {
+      setError('Please paste a dataset URL');
+      return;
+    }
+
+    setInputMode('url');
+    setFile(null);
+    setError('');
+    setLoading(true);
+    setProgress(5);
+    setProgressStatus('Fetching dataset...');
+
+    try {
+      const formData = new FormData();
+      formData.append('dataset_url', url);
+      const res = await API.post('/preview', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      setPreview(res.data || { columns: [], preview: [] });
+      if (res.data?.suggested_target_columns?.length > 0) {
+        setTargetColumn(res.data.suggested_target_columns[0]);
+      }
+      setStep(2);
+    } catch (err) {
+      setError(err.response?.data?.detail || err.response?.data?.error || 'Failed to load dataset from URL');
+    } finally {
+      setLoading(false);
+      setProgress(0);
+    }
+  };
+
   const handleTrain = async () => {
-    const isZip = file?.name.endsWith('.zip');
+    const url = (datasetUrl || '').trim();
+    const isZip = !url && file?.name?.endsWith('.zip');
     if (!isZip && !targetColumn) {
       setError('Please select a target column');
+      return;
+    }
+    if (!url && !file) {
+      setError('Please upload a file or paste a dataset URL');
       return;
     }
     setLoading(true);
     setIsTraining(true);
     setError('');
     setProgress(10);
-    setProgressStatus('Uploading...');
+    setProgressStatus(url ? 'Loading dataset...' : 'Uploading...');
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      if (url) {
+        formData.append('dataset_url', url);
+      } else if (file) {
+        formData.append('file', file);
+      }
       if (!isZip) formData.append('target_column', targetColumn);
 
       formData.append('dataset_mode', datasetMode); // NEW: Send mode
@@ -177,11 +224,16 @@ export default function Train() {
 
   const resetForm = () => {
     setStep(1); setFile(null); setPreview(null);
+    setInputMode('file'); setDatasetUrl('');
     setTargetColumn(''); setResult(null);
     setError(''); setProgress(0); setProgressStatus('');
     setCurrentModel(''); setEpochInfo('');
     setIsTraining(false);
   };
+
+  const isRegressionResult = String(result?.problem_type || '').toLowerCase().includes('regression');
+  const scoreLabel = isRegressionResult ? 'R² Score' : 'Score';
+  const lossLabel = isRegressionResult ? 'MSE Loss' : 'Loss';
 
   return (
     <DashboardLayout>
@@ -277,22 +329,66 @@ export default function Train() {
           <div className="border border-white/[.08] bg-[#111] p-8">
             <div className="text-center">
               <Upload size={48} className="text-[#B7FF4A] mx-auto mb-4" />
-              <h3 className="font-display text-lg font-bold uppercase text-white mb-2">Upload Dataset</h3>
+              <h3 className="font-display text-lg font-bold uppercase text-white mb-2">Add Dataset</h3>
               <p className="font-mono text-[11px] text-white/40 mb-6">
-                CSV · Excel · ZIP (images) — type auto-detected
+                Upload file or paste link (CSV / Kaggle / Drive)
               </p>
-              <label className="cursor-pointer inline-block">
-                <div className="px-6 py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] transition-all">
-                  Select File
+
+              <div className="flex justify-center mb-6">
+                <div className="inline-flex border border-white/[.08] bg-black/30">
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('file')}
+                    className={`px-4 py-2 font-mono text-[10px] uppercase tracking-widest transition ${
+                      inputMode === 'file' ? 'bg-[#B7FF4A] text-black' : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    Upload File
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('url')}
+                    className={`px-4 py-2 font-mono text-[10px] uppercase tracking-widest transition ${
+                      inputMode === 'url' ? 'bg-[#B7FF4A] text-black' : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    Paste Link
+                  </button>
                 </div>
-                <input 
-                  type="file" 
-                  accept="image/*,.csv,.xlsx,.xls,.zip" 
-                  onChange={handleFileSelect} 
-                  className="hidden" 
-                  disabled={loading} 
-                />
-              </label>
+              </div>
+
+              {inputMode === 'file' ? (
+                <label className="cursor-pointer inline-block">
+                  <div className="px-6 py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] transition-all">
+                    Select File
+                  </div>
+                  <input 
+                    type="file" 
+                    accept="image/*,.csv,.xlsx,.xls,.zip" 
+                    onChange={handleFileSelect} 
+                    className="hidden" 
+                    disabled={loading} 
+                  />
+                </label>
+              ) : (
+                <div className="max-w-2xl mx-auto space-y-3">
+                  <input
+                    value={datasetUrl}
+                    onChange={(e) => setDatasetUrl(e.target.value)}
+                    placeholder="Paste dataset URL (CSV / Kaggle / Drive)"
+                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[12px] focus:outline-none focus:border-[#B7FF4A]/40 transition-all"
+                    disabled={loading}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleUrlPreview}
+                    disabled={loading || !datasetUrl.trim()}
+                    className="px-6 py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] disabled:opacity-50 transition-all"
+                  >
+                    Load Dataset
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -503,14 +599,14 @@ export default function Train() {
             </div>
 
             {/* Metrics Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: 'Best Model', value: result.best_model || 'N/A', icon: Trophy, color: '#B7FF4A' },
-                { label: 'Score', value: safeNumber(result.score), icon: BarChart3, color: '#6AA7FF' },
-                { label: 'Loss', value: safeNumber(result.loss), icon: Zap, color: '#FF6B6B' },
-                { label: 'Problem Type', value: result.problem_type || 'N/A', icon: Brain, color: '#FF6B9D' },
-                { label: 'Dataset Rows', value: result.rows ?? 'N/A', icon: Clock, color: '#4FD1C5' }
-              ].map(({ label, value, icon: Icon, color }) => (
+	            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+	              {[
+	                { label: 'Best Model', value: result.best_model || 'N/A', icon: Trophy, color: '#B7FF4A' },
+	                { label: scoreLabel, value: safeNumber(result.score), icon: BarChart3, color: '#6AA7FF' },
+	                { label: lossLabel, value: safeNumber(result.loss), icon: Zap, color: '#FF6B6B' },
+	                { label: 'Problem Type', value: result.problem_type || 'N/A', icon: Brain, color: '#FF6B9D' },
+	                { label: 'Dataset Rows', value: result.rows ?? 'N/A', icon: Clock, color: '#4FD1C5' }
+	              ].map(({ label, value, icon: Icon, color }) => (
                 <div key={label} className="border border-white/[.08] bg-[#111] p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Icon size={13} style={{ color }} />
@@ -545,14 +641,14 @@ export default function Train() {
                   <Trophy size={14} className="text-[#B7FF4A]" /> Model Leaderboard
                 </h3>
                 <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-white/[.08]">
-                        {['Rank', 'Model', 'Score', 'Loss', 'Time (s)'].map(h => (
-                          <th key={h} className="px-4 py-2 text-left font-mono text-[10px] text-white/40 uppercase font-normal">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
+	                  <table className="w-full">
+	                    <thead>
+	                      <tr className="border-b border-white/[.08]">
+	                        {['Rank', 'Model', scoreLabel, lossLabel, 'Time (s)'].map(h => (
+	                          <th key={h} className="px-4 py-2 text-left font-mono text-[10px] text-white/40 uppercase font-normal">{h}</th>
+	                        ))}
+	                      </tr>
+	                    </thead>
                     <tbody>
                       {result.leaderboard.map((m, i) => (
                         <tr

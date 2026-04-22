@@ -19,6 +19,10 @@ export default function Experiments() {
   const [activeTab, setActiveTab] = useState('all'); // all, classification, regression, image, time_series
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
 
+  const isRegressionTab = activeTab === 'regression';
+  const scoreLabel = isRegressionTab ? 'R² Score' : 'Score';
+  const lossLabel = isRegressionTab ? 'MSE Loss' : 'Loss';
+
   const loadData = useCallback(async () => {
     try {
       if (activeTab === 'all') {
@@ -125,13 +129,13 @@ export default function Experiments() {
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b border-white/[.08] bg-white/[.02]">
+	                      <tr className="border-b border-white/[.08] bg-white/[.02]">
                         <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">
                           {activeTab === 'all' ? 'Rank' : 'Pos'}
                         </th>
                         <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">Best Model</th>
-                        <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">Score</th>
-                        <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">Loss</th>
+	                        <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">{scoreLabel}</th>
+	                        <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">{lossLabel}</th>
                         <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">Metrics</th>
                         <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">Dataset</th>
                         <th className="px-6 py-4 text-left font-mono text-[10px] text-white/30 uppercase tracking-[0.15em] font-normal">Timestamp</th>
@@ -221,4 +225,3 @@ export default function Experiments() {
     </DashboardLayout>
   );
 }
-

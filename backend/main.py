@@ -8,13 +8,22 @@ import gc
 import io
 import json
 import os
-os.environ.setdefault("OMP_NUM_THREADS", "1")
+
+# Force single-threaded BLAS/OpenMP to reduce memory spikes / segfault risk during training (esp. macOS).
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 from pathlib import Path
 import random
 import re
 import shutil
 import uuid
 import zipfile
+
+try:
+    import requests
+except Exception:
+    requests = None
 
 try:
     from PIL import Image
@@ -106,8 +115,23 @@ CURRENT_FEATURE_COLUMNS = []
 CURRENT_LABEL_ENCODER = None
 CURRENT_IMAGE_CLASSES = []
 CURRENT_TABULAR_MODEL_INFO = {}
-OPTUNA_MAX_TRIALS = max(1, int(os.getenv("OPTUNA_MAX_TRIALS", "50")))
-OPTUNA_TIMEOUT_SECONDS = max(5, int(os.getenv("OPTUNA_TIMEOUT_SECONDS", "60")))
+SAFE_MODE = os.getenv("SAFE_MODE", "true").strip().lower() != "false"
+FAST_MODE = os.getenv("FAST_MODE", "true").strip().lower() != "false"
+FAST_MODE_OPTUNA_TRIALS = 3
+FAST_MODE_CV_SPLITS = 2
+FAST_MODE_SAMPLE_SIZE = 30000
+DEFAULT_OPTUNA_TRIALS = 5
+MAX_TRAINING_SECONDS = max(30, int(os.getenv("MAX_TRAINING_SECONDS", "120")))
+OPTUNA_MAX_TRIALS = max(
+    1,
+    int(
+        os.getenv(
+            "OPTUNA_MAX_TRIALS",
+            str(FAST_MODE_OPTUNA_TRIALS if FAST_MODE else DEFAULT_OPTUNA_TRIALS),
+        )
+    ),
+)
+OPTUNA_TIMEOUT_SECONDS = max(5, int(os.getenv("OPTUNA_TIMEOUT_SECONDS", "45" if FAST_MODE else "60")))
 
 
 def get_tabular_model_path():
@@ -205,6 +229,162 @@ def safe_read_csv(file_input, sep=None):
             except Exception as e3:
                 print(f"❌ All CSV parsing strategies failed: {e3}")
                 raise ValueError(f"Cannot parse CSV file: {str(e3)}")
+
+
+def _extract_google_drive_file_id(url: str):
+    from urllib.parse import parse_qs, urlparse
+
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query or "")
+    if "id" in qs and qs["id"]:
+        return qs["id"][0]
+
+    match = re.search(r"/d/([a-zA-Z0-9_-]+)", url)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def _download_google_drive_bytes(file_id: str, timeout: int = 60) -> bytes:
+    if requests is None:
+        raise RuntimeError("requests is required to download Google Drive links (pip install requests).")
+
+    session = requests.Session()
+    url = "https://drive.google.com/uc?export=download"
+
+    response = session.get(url, params={"id": file_id}, stream=True, timeout=timeout)
+    token = None
+    for key, value in response.cookies.items():
+        if str(key).startswith("download_warning"):
+            token = value
+            break
+
+    if token:
+        response.close()
+        response = session.get(
+            url, params={"id": file_id, "confirm": token}, stream=True, timeout=timeout
+        )
+
+    response.raise_for_status()
+
+    content_type = (response.headers.get("Content-Type") or "").lower()
+    if "text/html" in content_type:
+        raise RuntimeError(
+            "Google Drive link did not resolve to a direct file download. Ensure the file is shared publicly."
+        )
+
+    return response.content
+
+
+def _parse_kaggle_dataset_ref(url: str):
+    match = re.search(r"kaggle\.com\/datasets\/([^\/?#]+)\/([^\/?#]+)", url)
+    if match:
+        owner = match.group(1)
+        dataset = match.group(2)
+        return f"{owner}/{dataset}"
+
+    match = re.search(r"kaggle\.com\/datasets\/([^\/?#]+)", url)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def _load_kaggle_dataset_as_dataframe(url: str) -> pd.DataFrame:
+    dataset_ref = _parse_kaggle_dataset_ref(url)
+    if not dataset_ref:
+        raise ValueError("Invalid Kaggle dataset URL.")
+    if "/" not in dataset_ref:
+        raise ValueError(
+            "Kaggle dataset URL must include owner + dataset slug, e.g. https://www.kaggle.com/datasets/<owner>/<dataset>."
+        )
+
+    try:
+        from kaggle.api.kaggle_api_extended import KaggleApi  # type: ignore
+    except Exception as exc:
+        raise RuntimeError("Kaggle API not installed (pip install kaggle).") from exc
+
+    api = KaggleApi()
+    try:
+        api.authenticate()
+    except Exception as exc:
+        raise RuntimeError(
+            "Kaggle authentication failed. Set KAGGLE_USERNAME/KAGGLE_KEY env vars or provide ~/.kaggle/kaggle.json."
+        ) from exc
+
+    temp_dir = os.path.join(UPLOAD_FOLDER, "kaggle_cache", uuid.uuid4().hex)
+    os.makedirs(temp_dir, exist_ok=True)
+
+    try:
+        api.dataset_download_files(dataset_ref, path=temp_dir, unzip=True, quiet=True)
+
+        csv_files = []
+        for root, _, filenames in os.walk(temp_dir):
+            for fname in filenames:
+                if fname.lower().endswith(".csv"):
+                    csv_files.append(os.path.join(root, fname))
+
+        if not csv_files:
+            raise RuntimeError("Kaggle dataset downloaded, but no CSV files were found.")
+
+        preferred_names = {"train.csv", "data.csv", "dataset.csv"}
+        selected_csv = None
+        for path in csv_files:
+            if os.path.basename(path).lower() in preferred_names:
+                selected_csv = path
+                break
+
+        if selected_csv is None:
+            selected_csv = max(csv_files, key=lambda p: os.path.getsize(p))
+
+        return safe_read_csv(selected_csv)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def load_dataset_from_url(url: str) -> pd.DataFrame:
+    url = (url or "").strip()
+    if not url:
+        raise ValueError("dataset_url is empty")
+
+    print(f"🌐 Loading dataset from URL: {url}")
+
+    lowered = url.lower()
+
+    if "kaggle.com" in lowered:
+        df = _load_kaggle_dataset_as_dataframe(url)
+        if df is None or df.empty:
+            raise RuntimeError("Dataset is empty")
+        print("✅ Dataset loaded from URL")
+        return df
+
+    if "drive.google.com" in lowered:
+        file_id = _extract_google_drive_file_id(url)
+        if not file_id:
+            raise ValueError("Unsupported Google Drive link format.")
+        content = _download_google_drive_bytes(file_id)
+        df = safe_read_csv(io.BytesIO(content))
+        if df is None or df.empty:
+            raise RuntimeError("Dataset is empty")
+        print("✅ Dataset loaded from URL")
+        return df
+
+    # Direct CSV (and most public links)
+    try:
+        df = safe_read_csv(url)
+    except Exception:
+        if requests is None:
+            raise
+        resp = requests.get(url, timeout=60)
+        resp.raise_for_status()
+        df = safe_read_csv(io.BytesIO(resp.content))
+
+    if df is None or df.empty:
+        raise RuntimeError("Dataset is empty")
+
+    print("✅ Dataset loaded from URL")
+    return df
 
 
 def get_latest_model_path():
@@ -1251,7 +1431,9 @@ def get_model_library():
         from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
         CLASSIFICATION_MODELS = {
-            "RandomForest": RandomForestClassifier(),
+            "RandomForest": RandomForestClassifier(
+                n_estimators=50, max_depth=10, n_jobs=1, random_state=42
+            ),
             "LogisticRegression": LogisticRegression(max_iter=200),
             "SVM": SVC(probability=True),
             "KNN": KNeighborsClassifier(),
@@ -1260,7 +1442,9 @@ def get_model_library():
         if CATBOOST_AVAILABLE:
             CLASSIFICATION_MODELS["CatBoost"] = CatBoostClassifier(verbose=0, allow_writing_files=False)
         REGRESSION_MODELS = {
-            "RandomForest": RandomForestRegressor(),
+            "RandomForest": RandomForestRegressor(
+                n_estimators=50, max_depth=10, n_jobs=1, random_state=42
+            ),
             "LinearRegression": LinearRegression(),
             "SVR": SVR(),
             "KNN": KNeighborsRegressor(),
@@ -1790,23 +1974,36 @@ def append_experiment_log(
          
                                                        
 @app.post("/preview")
-async def preview_dataset(file: UploadFile = File(...)):
-    filename = file.filename if file.filename is not None else "unknown"
-    file_path = os.path.join(UPLOAD_FOLDER, filename)
+async def preview_dataset(
+    file: UploadFile = File(None),
+    dataset_url: str = Form(None),
+):
+    dataset_url_value = (dataset_url or "").strip()
 
-    with open(file_path, "wb") as buffer:
-        buffer.write(await file.read())
-
-    filename_safe = file.filename if file.filename is not None else ""
-    if filename_safe.endswith(".csv"):
+    if dataset_url_value:
         try:
-            df = safe_read_csv(file_path)
-        except Exception as e:
-            return {"error": f"Failed to parse CSV file: {str(e)}"}
-    elif filename_safe.endswith(".xlsx"):
-        df = pd.read_excel(file_path)
+            df = load_dataset_from_url(dataset_url_value)
+        except Exception as exc:
+            return {"error": str(exc)}
+    elif file is not None:
+        filename = file.filename if file.filename is not None else "unknown"
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+
+        with open(file_path, "wb") as buffer:
+            buffer.write(await file.read())
+
+        filename_safe = file.filename if file.filename is not None else ""
+        if filename_safe.endswith(".csv"):
+            try:
+                df = safe_read_csv(file_path)
+            except Exception as e:
+                return {"error": f"Failed to parse CSV file: {str(e)}"}
+        elif filename_safe.endswith(".xlsx"):
+            df = pd.read_excel(file_path)
+        else:
+            return {"error": "Unsupported file format"}
     else:
-        return {"error": "Unsupported file format"}
+        return {"error": "No dataset provided"}
 
     df.columns = df.columns.str.strip()
 
@@ -1876,20 +2073,22 @@ async def preview_dataset(file: UploadFile = File(...)):
 def genetic_evolution(
     X_train, X_test, y_train, y_test, problem_type, generations=5, population_size=6
 ):
-
     def create_individual():
         if problem_type == "classification":
             return RandomForestClassifier(
-                n_estimators=random.randint(50, 300),
-                max_depth=random.choice([None, 5, 10, 20]),
+                n_estimators=50,
+                max_depth=10,
                 min_samples_split=random.randint(2, 10),
+                n_jobs=1,
+                random_state=42,
             )
-        else:
-            return RandomForestRegressor(
-                n_estimators=random.randint(50, 300),
-                max_depth=random.choice([None, 5, 10, 20]),
-                min_samples_split=random.randint(2, 10),
-            )
+        return RandomForestRegressor(
+            n_estimators=50,
+            max_depth=10,
+            min_samples_split=random.randint(2, 10),
+            n_jobs=1,
+            random_state=42,
+        )
 
     def fitness(model):
         model.fit(X_train, y_train)
@@ -1897,15 +2096,14 @@ def genetic_evolution(
 
         if problem_type == "classification":
             return accuracy_score(y_test, preds)
-        else:
-            return -calculate_rmse(y_test, preds)
+        return -calculate_rmse(y_test, preds)
 
     population = [create_individual() for _ in range(population_size)]
 
     best_model = None
     best_score = float("-inf")
 
-    for generation in range(generations):
+    for _ in range(generations):
         scored_population = []
 
         for model in population:
@@ -1916,16 +2114,13 @@ def genetic_evolution(
                 best_score = score
                 best_model = model
 
-                        
         scored_population.sort(key=lambda x: x[0], reverse=True)
         survivors = [model for _, model in scored_population[: population_size // 2]]
 
-                  
         new_population = survivors.copy()
 
         while len(new_population) < population_size:
-            child = create_individual()                  
-            new_population.append(child)
+            new_population.append(create_individual())
 
         population = new_population
 
@@ -2263,21 +2458,36 @@ def get_tabular_model_catalog(problem_type, user_params=None):
 
     if problem_key == "classification":
         rf_params = {
+            **pick_model_params(user_params, ["rf", "randomforest"], rf_allowed),
+            "n_estimators": 50,
+            "max_depth": 10,
             "random_state": 42,
             "n_jobs": 1,
-            **pick_model_params(user_params, ["rf", "randomforest"], rf_allowed),
         }
         catalog["rf"] = ("RandomForest", lambda: RandomForestClassifier(**rf_params))
 
         if XGBOOST_AVAILABLE:
-            xgb_params = {"n_jobs": 1, **pick_model_params(user_params, ["xgb", "xgboost"], xgb_allowed)}
+            xgb_params = {
+                **pick_model_params(user_params, ["xgb", "xgboost"], xgb_allowed),
+                "n_estimators": 50,
+                "max_depth": 6,
+                "tree_method": "hist",
+                "subsample": 0.8,
+                "colsample_bytree": 0.8,
+                "n_jobs": 1,
+                "random_state": 42,
+            }
             catalog["xgb"] = (
                 "XGBoost",
                 lambda: XGBClassifier(use_label_encoder=False, eval_metric="logloss", **xgb_params),
             )
 
         if CATBOOST_AVAILABLE:
-            cat_params = {"verbose": 0, **pick_model_params(user_params, ["catboost"], cat_allowed)}
+            cat_params = {
+                "iterations": 100 if FAST_MODE else 300,
+                "verbose": 0,
+                **pick_model_params(user_params, ["catboost"], cat_allowed),
+            }
             catalog["catboost"] = ("CatBoost", lambda: CatBoostClassifier(**cat_params))
 
         lr_params = {
@@ -2302,18 +2512,33 @@ def get_tabular_model_catalog(problem_type, user_params=None):
         return catalog
 
     rf_params = {
+        **pick_model_params(user_params, ["rf", "randomforest"], rf_allowed),
+        "n_estimators": 50,
+        "max_depth": 10,
         "random_state": 42,
         "n_jobs": 1,
-        **pick_model_params(user_params, ["rf", "randomforest"], rf_allowed),
     }
     catalog["rf"] = ("RandomForest", lambda: RandomForestRegressor(**rf_params))
 
     if XGBOOST_AVAILABLE:
-        xgb_params = {"n_jobs": 1, **pick_model_params(user_params, ["xgb", "xgboost"], xgb_allowed)}
+        xgb_params = {
+            **pick_model_params(user_params, ["xgb", "xgboost"], xgb_allowed),
+            "n_estimators": 50,
+            "max_depth": 6,
+            "tree_method": "hist",
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "n_jobs": 1,
+            "random_state": 42,
+        }
         catalog["xgb"] = ("XGBoost", lambda: XGBRegressor(**xgb_params))
 
     if CATBOOST_AVAILABLE:
-        cat_params = {"verbose": 0, **pick_model_params(user_params, ["catboost"], cat_allowed)}
+        cat_params = {
+            "iterations": 100 if FAST_MODE else 300,
+            "verbose": 0,
+            **pick_model_params(user_params, ["catboost"], cat_allowed),
+        }
         catalog["catboost"] = ("CatBoost", lambda: CatBoostRegressor(**cat_params))
 
     catalog["lr"] = (
@@ -3713,7 +3938,8 @@ class SafeImageFolder(object):
 @app.post("/train")
 async def auto_train(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile = File(None),
+    dataset_url: str = Form(None),
     target_column: str = Form(None),
     dataset_mode: str = Form("auto"),  # User dataset mode control
     model_name: str = Form("auto"),
@@ -3726,31 +3952,55 @@ async def auto_train(
     global CURRENT_MODEL_TYPE, CURRENT_FEATURE_COLUMNS, CURRENT_LABEL_ENCODER
     global CURRENT_TABULAR_MODEL_INFO
     
-    filename = (file.filename if file.filename is not None else "").lower()
     user_id = extract_user_id_from_request(request)
 
+    dataset_url_value = (dataset_url or "").strip()
     dataset_input = None
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename or "unknown")
-    
-    # Store once fix
-    content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    df = None
+    file_path = None
+    dataset_label = None
+    filename = ""
 
-    if is_image_zip(file):
-        dataset_input = "zip_placeholder"
-    else:
+    if dataset_url_value:
         try:
-            if filename.endswith(".csv"):
-                df = safe_read_csv(file_path)
-            else:
-                df = pd.read_excel(file_path)
+            df = load_dataset_from_url(dataset_url_value)
             df.columns = df.columns.str.strip()
             df = df.dropna(axis=1, how="all")
             df = df.dropna(axis=0, how="all")
+            if df.empty:
+                return {"error": "Dataset is empty"}
             dataset_input = df
-        except Exception:
-            return {"error": "Failed to read file"}
+            filename = dataset_url_value.lower()
+            dataset_label = dataset_url_value
+        except Exception as exc:
+            return {"error": str(exc)}
+    elif file is not None:
+        filename = (file.filename if file.filename is not None else "").lower()
+        dataset_label = file.filename or "uploaded_file"
+        file_path = os.path.join(UPLOAD_FOLDER, file.filename or "unknown")
+
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        if is_image_zip(file):
+            dataset_input = "zip_placeholder"
+        else:
+            try:
+                if filename.endswith(".csv"):
+                    df = safe_read_csv(file_path)
+                else:
+                    df = pd.read_excel(file_path)
+                df.columns = df.columns.str.strip()
+                df = df.dropna(axis=1, how="all")
+                df = df.dropna(axis=0, how="all")
+                if df.empty:
+                    return {"error": "Dataset is empty"}
+                dataset_input = df
+            except Exception:
+                return {"error": "Failed to read file"}
+    else:
+        return {"error": "No dataset provided"}
 
 
     detected_type, meta = detect_dataset_type(dataset_input, target_column=target_column)
@@ -4023,7 +4273,7 @@ async def auto_train(
                 "training_logs": training_logs,
                 "created_at": datetime.utcnow(),
                 "timestamp": datetime.now().isoformat(),
-                "dataset": file.filename or "uploaded_file",
+                "dataset": dataset_label or "uploaded_file",
                 "problem_type": "image",
                 "user_id": user_id,
                 "target_column": "classification",
@@ -4179,7 +4429,7 @@ async def auto_train(
                 from sklearn.ensemble import RandomForestRegressor as _RFTS
                 from sklearn.model_selection import train_test_split as _tts
                 Xl_tr, Xl_te, yl_tr, yl_te = Xlag[:split], Xlag[split:], ylag[:split], ylag[split:]
-                rf_ts = _RFTS(n_estimators=50)
+                rf_ts = _RFTS(n_estimators=50, max_depth=10, n_jobs=1, random_state=42)
                 rf_ts.fit(Xl_tr, yl_tr)
                 rf_preds = rf_ts.predict(Xl_te)
                 rf_col_mae = mean_absolute_error(yl_te, rf_preds) if len(rf_preds) else col_mae
@@ -4346,7 +4596,7 @@ async def auto_train(
                         "loss": float(avg_rmse),
                         "created_at": datetime.utcnow(),
                         "timestamp": datetime.now().isoformat(),
-                        "dataset": file.filename or "uploaded_file",
+                        "dataset": dataset_label or "uploaded_file",
                         "problem_type": "time_series",
                         "dataset_type": "time_series",
                         "user_id": user_id,
@@ -4501,8 +4751,10 @@ async def auto_train(
         if problem_type == "classification":
             from sklearn.preprocessing import LabelEncoder
             label_encoder = LabelEncoder()
-            y = label_encoder.fit_transform(y)
+            y = pd.Series(label_encoder.fit_transform(y), index=X.index, name=target_column)
             print(f"✅ Encoded {len(label_encoder.classes_)} classes")
+        else:
+            y = pd.Series(y, index=X.index, name=target_column)
 
         X = X.fillna(0)
         print("✅ Missing values handled")
@@ -4526,6 +4778,34 @@ async def auto_train(
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, stratify=stratify_target
         )
+
+        if SAFE_MODE:
+            # Reduce memory pressure (esp. large one-hot matrices)
+            try:
+                X_train = X_train.astype("float32")
+                X_test = X_test.astype("float32")
+            except Exception as e:
+                print(f"⚠️ SAFE_MODE float32 cast skipped: {e}")
+
+        full_X_train = X_train
+        full_y_train = y_train
+        full_train_rows = len(full_X_train)
+        sample_size_limit = FAST_MODE_SAMPLE_SIZE if FAST_MODE else 50000
+        use_optuna = (not SAFE_MODE) and full_train_rows <= 200000
+
+        print(f"📊 Dataset size: rows={len(X)}, features={X.shape[1]}, train_rows={full_train_rows}")
+        print(f"⚙️ FAST_MODE={FAST_MODE}, SAFE_MODE={SAFE_MODE}, timeout={MAX_TRAINING_SECONDS}s")
+
+        if full_train_rows > 100000:
+            print("⚡ Using sample for fast training")
+            sample_size = min(sample_size_limit, full_train_rows)
+            X_train = full_X_train.sample(sample_size, random_state=42)
+            y_train = full_y_train.loc[X_train.index]
+            print(f"⚡ Training sample size: {len(X_train)}")
+
+        if full_train_rows > 200000:
+            print("⚠️ Large dataset detected → skipping hyperparameter tuning")
+            use_optuna = False
 
         # SAVE SAMPLES FOR XAI
         try:
@@ -4573,7 +4853,9 @@ async def auto_train(
 
         # ===== ADAPTIVE CV =====
         # Use min(5, y.value_counts().min()) for CV splits to ensure no crash and max possible CV
-        if problem_type == "classification":
+        if len(X_train) > 100000 or FAST_MODE:
+            cv_splits = FAST_MODE_CV_SPLITS
+        elif problem_type == "classification":
             train_class_counts = pd.Series(y_train).value_counts()
             min_class_count = int(train_class_counts.min()) if not train_class_counts.empty else 2
             cv_splits = max(2, min(3, min_class_count))
@@ -4584,8 +4866,10 @@ async def auto_train(
         # ===== DYNAMIC HYPERPARAMETER TUNING =====
         # Optuna-style optimization instead of brute force GridSearch
         def optimize_random_forest(trial):
-            n_estimators = trial.suggest_int("n_estimators", 50, 300)
-            max_depth = trial.suggest_int("max_depth", 5, 30)
+            print(f"🔄 Trial {trial.number}")
+            # Memory-safe caps to avoid macOS crashes under load
+            n_estimators = trial.suggest_int("n_estimators", 50, 50)
+            max_depth = trial.suggest_int("max_depth", 10, 10)
 
             model = RandomForestClassifier(
                 n_estimators=n_estimators,
@@ -4606,6 +4890,7 @@ async def auto_train(
             except Exception as e:
                 print(f"⚠️ CV failed, fallback to simple fit: {e}")
                 model.fit(X_train, y_train)
+                gc.collect()
                 score = compute_train_fallback_score(model, X_train, y_train, problem_type)
                 if str(problem_type or "").lower() not in {"classification", "regression"}:
                     score = -float(score)
@@ -4618,14 +4903,31 @@ async def auto_train(
                 # Fallback to simple GridSearchCV
                 print(f"⚠️ Optuna not available, using GridSearchCV for {model_name}")
                 from sklearn.model_selection import GridSearchCV
-                base_m = RandomForestClassifier(random_state=42, n_jobs=1) if problem_type == "classification" else RandomForestRegressor(random_state=42, n_jobs=1)
+                base_m = (
+                    RandomForestClassifier(n_estimators=50, max_depth=10, random_state=42, n_jobs=1)
+                    if problem_type == "classification"
+                    else RandomForestRegressor(n_estimators=50, max_depth=10, random_state=42, n_jobs=1)
+                )
                 param_grid = {
-                    "n_estimators": [50, 100, 200],
-                    "max_depth": [None, 10, 20]
+                    "n_estimators": [50],
+                    "max_depth": [10],
                 }
                 grid = GridSearchCV(base_m, param_grid, cv=cv_splits, scoring="accuracy" if problem_type == "classification" else "r2", n_jobs=1)
                 grid.fit(X_train, y_train)
-                return grid.best_estimator_, grid.best_score_
+                fit_on_full_data = len(X_train) >= full_train_rows
+                if len(X_train) < full_train_rows:
+                    if not FAST_MODE and not SAFE_MODE:
+                        print("🏁 Training on full dataset")
+                        grid.best_estimator_.fit(full_X_train, full_y_train)
+                        fit_on_full_data = True
+                    else:
+                        print(
+                            "⚡ FAST_MODE enabled → skipping full dataset retrain"
+                            if FAST_MODE
+                            else "🛟 SAFE_MODE enabled → skipping full dataset retrain"
+                        )
+                gc.collect()
+                return grid.best_estimator_, grid.best_score_, fit_on_full_data
 
             try:
                 await send_progress({"model": model_name, "status": "optimizing", "progress": 10})
@@ -4640,16 +4942,34 @@ async def auto_train(
                 best_params = study.best_params
                 model_class = RandomForestClassifier if problem_type == "classification" else RandomForestRegressor
                 best_model = model_class(**best_params, random_state=42, n_jobs=1)
-                best_model.fit(X_train, y_train)
+                fit_on_full_data = len(X_train) >= full_train_rows
+                if len(X_train) < full_train_rows:
+                    if not FAST_MODE and not SAFE_MODE:
+                        print("🏁 Training on full dataset")
+                        best_model.fit(full_X_train, full_y_train)
+                        fit_on_full_data = True
+                    else:
+                        print(
+                            "⚡ FAST_MODE enabled → skipping full dataset retrain"
+                            if FAST_MODE
+                            else "🛟 SAFE_MODE enabled → skipping full dataset retrain"
+                        )
+                        best_model.fit(X_train, y_train)
+                        fit_on_full_data = False
+                else:
+                    best_model.fit(X_train, y_train)
+                    fit_on_full_data = True
+                gc.collect()
                 best_cv_score = normalize_optuna_best_value(problem_type, study.best_value)
 
                 await send_progress({"model": model_name, "status": "optimized", "progress": 80, "best_score": best_cv_score})
-                return best_model, best_cv_score
+                return best_model, best_cv_score, fit_on_full_data
             except Exception as e:
                 print(f"⚠️ Optuna failed for {model_name}: {e}, using default")
                 model_class = RandomForestClassifier if problem_type == "classification" else RandomForestRegressor
-                default_model = model_class(random_state=42, n_jobs=1)
+                default_model = model_class(n_estimators=50, max_depth=10, random_state=42, n_jobs=1)
                 default_model.fit(X_train, y_train)
+                gc.collect()
                 try:
                     default_score = compute_cv_score(
                         default_model, X_train, y_train, cv_splits, problem_type
@@ -4657,27 +4977,46 @@ async def auto_train(
                 except Exception as e:
                     print(f"⚠️ Default CV failed: {e}")
                     default_model.fit(X_train, y_train)
+                    gc.collect()
                     default_score = compute_train_fallback_score(
                         default_model, X_train, y_train, problem_type
                     )
-                return default_model, default_score
+                fit_on_full_data = len(X_train) >= full_train_rows
+                return default_model, default_score, fit_on_full_data
 
         # ===== MULTI-MODEL PARALLEL TRAINING =====
         # Train models in parallel using all CPU cores
+        training_deadline = train_start_time + MAX_TRAINING_SECONDS
+
+        def training_timed_out():
+            return time.time() > training_deadline
+
         async def train_single_model(model_config):
             model_name, model_func = model_config
             try:
+                if training_timed_out():
+                    print("⏱ Timeout reached, stopping early")
+                    return None
+
+                print(f"🔄 Training model: {model_name}")
                 await send_progress({"model": model_name, "status": "starting", "progress": 0})
                 started_at = datetime.now()
 
-                if model_name == "RandomForest" and not manual_model_selected:
-                    model_obj, cv_score = await run_optuna_optimization("RandomForest", optimize_random_forest)
+                final_fit_done = False
+                if model_name == "RandomForest" and not manual_model_selected and use_optuna:
+                    model_obj, cv_score, final_fit_done = await run_optuna_optimization(
+                        "RandomForest", optimize_random_forest
+                    )
+                    gc.collect()
                 else:
                     # Manual selection should fit exactly the chosen model, not run AutoML tuning.
+                    if model_name == "RandomForest" and not use_optuna:
+                        print("⚡ Fitting RandomForest directly without Optuna")
                     model_obj = model_func()
                     model_obj.fit(X_train, y_train)
+                    gc.collect()
                     cv_score = None
-                    if not manual_model_selected:
+                    if not manual_model_selected and len(X_train) <= 100000:
                         try:
                             cv_score = compute_cv_score(
                                 model_obj, X_train, y_train, cv_splits, problem_type
@@ -4718,17 +5057,21 @@ async def auto_train(
                         "cv_score": float(cv_score),
                     }
                 else:
+                    # Regression metrics (score higher is better, loss lower is better)
                     r2 = float(r2_score(y_test, preds))
-                    mse = mean_squared_error(y_test, preds)
+                    mse = float(mean_squared_error(y_test, preds))
                     rmse = float(np.sqrt(mse))
                     mae = float(mean_absolute_error(y_test, preds))
-                    loss = float(rmse)
+
+                    # For regression, expose MSE as the primary loss.
+                    loss = float(mse)
                     metrics = {
-                        "r2": r2,
+                        "score": float(r2),
+                        "loss": float(mse),
+                        "r2": float(r2),
                         "mse": float(mse),
-                        "rmse": rmse,
-                        "mae": mae,
-                        "loss": float(loss),
+                        "rmse": float(rmse),
+                        "mae": float(mae),
                         "cv_score": float(cv_score),
                     }
 
@@ -4742,6 +5085,7 @@ async def auto_train(
                     "obj": model_obj,
                     "time": duration,
                     "metrics": metrics,
+                    "fit_on_full_data": final_fit_done,
                 }
 
                 if problem_type == "classification":
@@ -4763,9 +5107,9 @@ async def auto_train(
                 else:
                     training_logs[model_name] = {
                         "loss": [
-                            round(float(rmse * 1.4 if rmse > 0 else 1.0), 6),
-                            round(float(rmse * 1.15 if rmse > 0 else 0.5), 6),
-                            round(float(rmse), 6),
+                            round(float(loss * 1.4 if loss > 0 else 1.0), 6),
+                            round(float(loss * 1.15 if loss > 0 else 0.5), 6),
+                            round(float(loss), 6),
                         ],
                         "accuracy": [
                             round(float(r2 * 0.7), 6),
@@ -4815,15 +5159,72 @@ async def auto_train(
             return {
                 "error": f"No supported models available for selection '{selected_model or model_name or target_selection}'."
             }
+        def build_fallback_result():
+            from sklearn.dummy import DummyClassifier, DummyRegressor
+
+            fallback_model = (
+                DummyClassifier(strategy="most_frequent")
+                if problem_type == "classification"
+                else DummyRegressor(strategy="mean")
+            )
+            fallback_model.fit(X_train, y_train)
+            gc.collect()
+
+            preds = fallback_model.predict(X_test)
+            eval_result = evaluate_model(problem_type, y_test, preds)
+            fallback_score = float(eval_result.get("score", 0.0))
+            metric_name = eval_result.get("metric", "unknown")
+
+            if problem_type == "classification":
+                loss = 0.0
+                metrics = {"accuracy": fallback_score, "loss": float(loss), "cv_score": fallback_score}
+            else:
+                r2 = float(r2_score(y_test, preds))
+                mse = float(mean_squared_error(y_test, preds))
+                rmse = float(np.sqrt(mse))
+                mae = float(mean_absolute_error(y_test, preds))
+                fallback_score = float(r2)
+                loss = float(mse)
+                metrics = {
+                    "score": float(r2),
+                    "loss": float(mse),
+                    "r2": float(r2),
+                    "mse": float(mse),
+                    "rmse": float(rmse),
+                    "mae": float(mae),
+                    "cv_score": float(fallback_score),
+                }
+            return {
+                "name": "FallbackDummy",
+                "model": "FallbackDummy",
+                "score": fallback_score,
+                "cv_score": fallback_score,
+                "metric": metric_name,
+                "loss": float(loss),
+                "obj": fallback_model,
+                "time": 0.0,
+                "metrics": metrics,
+                "fit_on_full_data": True,
+            }
+
         parallel_results = []
-        for config in models_to_train:
-            parallel_results.append(await train_single_model(config))
+        try:
+            for config in models_to_train:
+                if parallel_results and training_timed_out():
+                    print("⏱ Timeout reached, stopping early")
+                    break
+                parallel_results.append(await train_single_model(config))
+                gc.collect()
+        except Exception as e:
+            print("❌ Training failed safely:", str(e))
+            parallel_results = []
 
         # Filter out failed models
         results = [r for r in parallel_results if r is not None]
 
         if not results:
-            return {"error": "No tabular models trained successfully."}
+            print("❌ Training failed safely:", "no models trained")
+            results = [build_fallback_result()]
 
         # -------- PICK BEST --------
         await send_progress({"model": "Universal Engine", "status": "selecting_best", "progress": 90})
@@ -4870,12 +5271,64 @@ async def auto_train(
                 "hint": "Check dataset quality or target column"
             }
 
+        if len(X_train) < full_train_rows and not best_res.get("fit_on_full_data") and not training_timed_out():
+            if not FAST_MODE and not SAFE_MODE:
+                try:
+                    print("🏁 Training on full dataset")
+                    best_model.fit(full_X_train, full_y_train)
+                    gc.collect()
+                    best_res["obj"] = best_model
+                    best_res["fit_on_full_data"] = True
+                except Exception as e:
+                    print(f"⚠️ Full-data final fit failed; keeping sampled model: {e}")
+            else:
+                print(
+                    "⚡ FAST_MODE enabled → skipping full dataset retrain"
+                    if FAST_MODE
+                    else "🛟 SAFE_MODE enabled → skipping full dataset retrain"
+                )
+        elif len(X_train) < full_train_rows and not best_res.get("fit_on_full_data"):
+            print("⏱ Timeout reached, stopping early with current best model")
+
+        # Ensure regression metrics reflect the final fitted model (post optional retrain).
+        if problem_type == "regression":
+            try:
+                final_preds = best_model.predict(X_test)
+                final_r2 = float(r2_score(y_test, final_preds))
+                final_mse = float(mean_squared_error(y_test, final_preds))
+                final_rmse = float(np.sqrt(final_mse))
+                final_mae = float(mean_absolute_error(y_test, final_preds))
+
+                best_score = final_r2
+                best_res["score"] = float(final_r2)
+                best_res["loss"] = float(final_mse)
+
+                if top_models:
+                    cv_score = float(top_models[0].get("cv_score", final_r2))
+                    top_models[0]["score"] = float(final_r2)
+                    top_models[0]["loss"] = float(final_mse)
+                    top_models[0]["metric"] = "r2"
+                    top_models[0]["metrics"] = {
+                        "score": float(final_r2),
+                        "loss": float(final_mse),
+                        "r2": float(final_r2),
+                        "mse": float(final_mse),
+                        "rmse": float(final_rmse),
+                        "mae": float(final_mae),
+                        "cv_score": float(cv_score),
+                    }
+            except Exception as e:
+                print(f"⚠️ Failed to compute final regression metrics: {e}")
+
         # ===== TIME TRACKING =====
         train_end_time = time.time()
         train_time = round(train_end_time - train_start_time, 2)
         dataset_rows = len(df)
         best_metrics = top_models[0].get("metrics", {}) if top_models else {}
         best_loss = best_metrics.get("loss", 0.0)
+        print(f"🏁 Model used: {best_model_name}")
+        print(f"⏱ Time taken: {train_time}s")
+        print(f"🏆 Best score: {best_score}")
 
         # Log experiment to MongoDB
         try:
@@ -4886,7 +5339,7 @@ async def auto_train(
                 "loss": float(best_loss),
                 "created_at": datetime.utcnow(),
                 "timestamp": datetime.now().isoformat(),
-                "dataset": file.filename or "uploaded_file",
+                "dataset": dataset_label or "uploaded_file",
                 "problem_type": problem_type,
                 "user_id": user_id,
                 "target_column": target_column,
@@ -5024,18 +5477,20 @@ async def auto_train(
                             pass
                     save_explain("metrics", metrics_payload)
                 else:
-                    mse = float(mean_squared_error(y_test, y_pred))
                     r2 = float(r2_score(y_test, y_pred))
+                    mse = float(mean_squared_error(y_test, y_pred))
                     rmse = float(np.sqrt(mse))
+                    mae = float(mean_absolute_error(y_test, y_pred))
                     residuals = (
                         np.array(y_test, dtype=float) - np.array(y_pred, dtype=float)
                     ).tolist()
                     metrics_payload = {
-                        "mse": mse,
-                        "rmse": rmse,
-                        "r2": r2,
-                        "loss": rmse,
-                        "score": r2,
+                        "score": float(r2),
+                        "loss": float(mse),
+                        "r2": float(r2),
+                        "mse": float(mse),
+                        "rmse": float(rmse),
+                        "mae": float(mae),
                         "residuals": [float(r) for r in residuals[:100]],
                     }
                     if loss_graph:
@@ -5183,49 +5638,55 @@ async def auto_train(
                 "generated_code": generated_code,
                 "model_version": model_filename,
                 "ai_insights": ai_insights,
-                "metrics": {
-                    "main_metric": float(best_score) if best_score is not None else 0.0,
-                    **best_model_metrics,
-                }
+                "metrics": best_model_metrics,
             }
-        else:
-            # We must make sure test labels and predictions match
-            try:
-                preds = best_model.predict(X_test)
-                import math
-                mse  = mean_squared_error(y_test, preds)
-                rmse = math.sqrt(mse)
-                mae  = float(np.mean(np.abs(np.array(y_test) - np.array(preds))))
-            except:
-                mse = rmse = mae = 0.0
-                
-            update_progress(
-                100, "Completed", "Training completed successfully", eta="0 sec"
-            )
-            best_model_metrics = top_models[0].get("metrics", {}) if top_models else {}
-            return {
-                "status": "success",
-                "dataset_type": "tabular",
-                "problem_type": "Regression",
-                "rows": len(df),
-                "target_column": target_column,
-                "best_model": str(best_model_name),
-                "score": float(best_score) if best_score is not None else 0.0,
-                "loss": float(best_loss),
-                "mse": round(mse, 4),
-                "rmse": round(rmse, 4),
-                "r2": round(float(best_model_metrics.get("r2", 0.0)), 4),
-                "top_models": top_3_models,
-                "all_models": top_models,
-                "leaderboard": leaderboard_data["models"],
-                "generated_code": generated_code,
-                "model_version": model_filename,
-                "ai_insights": ai_insights,
-                "metrics": {
-                    "main_metric": float(best_score) if best_score is not None else 0.0,
-                    **best_model_metrics,
-                }
-            }
+
+        # Regression: compute and return consistent metrics
+        try:
+            preds = best_model.predict(X_test)
+            r2 = float(r2_score(y_test, preds))
+            mse = float(mean_squared_error(y_test, preds))
+            rmse = float(np.sqrt(mse))
+            mae = float(mean_absolute_error(y_test, preds))
+        except Exception:
+            r2 = mse = rmse = mae = 0.0
+
+        update_progress(
+            100, "Completed", "Training completed successfully", eta="0 sec"
+        )
+        best_model_metrics = top_models[0].get("metrics", {}) if top_models else {}
+        output_metrics = {
+            "score": float(r2),
+            "loss": float(mse),
+            "r2": float(r2),
+            "mse": float(mse),
+            "rmse": float(rmse),
+            "mae": float(mae),
+        }
+        if isinstance(best_model_metrics, dict) and best_model_metrics.get("cv_score") is not None:
+            output_metrics["cv_score"] = float(best_model_metrics["cv_score"])
+
+        return {
+            "status": "success",
+            "dataset_type": "tabular",
+            "problem_type": "Regression",
+            "rows": len(df),
+            "target_column": target_column,
+            "best_model": str(best_model_name),
+            "score": float(r2),
+            "loss": float(mse),
+            "mse": round(float(mse), 4),
+            "rmse": round(float(rmse), 4),
+            "mae": round(float(mae), 4),
+            "r2": round(float(r2), 4),
+            "top_models": top_3_models,
+            "all_models": top_models,
+            "leaderboard": leaderboard_data["models"],
+            "generated_code": generated_code,
+            "model_version": model_filename,
+            "ai_insights": ai_insights,
+            "metrics": output_metrics,
+        }
 
 
 
@@ -6295,6 +6756,8 @@ async def adversarial_upload(file: UploadFile = File(...)):
     response = {
         "filename": safe_name,
         "path": saved_path,
+        "url": f"/uploads/adversarial/{safe_name}",
+        "is_image": is_valid_image(filename),
         "status": "uploaded",
         "size_bytes": len(content),
     }
@@ -6771,6 +7234,227 @@ def predict_single_image(model, classes, transform, torch, image_source):
         label = classes[class_idx] if class_idx < len(classes) else "Unknown"
     return label
 
+
+def fgsm_attack(model, image_01, label, epsilon, mean, std):
+    import torch.nn.functional as F
+
+    image = image_01.clone().detach().requires_grad_(True)
+    output = model((image - mean) / std)
+    loss = F.cross_entropy(output, label)
+
+    model.zero_grad()
+    loss.backward()
+
+    data_grad = image.grad.data
+    perturbed = image + (float(epsilon) * data_grad.sign())
+    perturbed = perturbed.clamp(0, 1).detach()
+    return perturbed
+
+
+def bim_attack(model, image_01, label, epsilon=0.03, alpha=0.01, iters=10, mean=None, std=None):
+    import torch.nn.functional as F
+
+    epsilon = float(epsilon)
+    alpha = float(alpha)
+    iters = int(iters)
+
+    original = image_01.clone().detach()
+    perturbed = original.clone().detach()
+
+    for _ in range(iters):
+        perturbed = perturbed.clone().detach().requires_grad_(True)
+        output = model((perturbed - mean) / std)
+        loss = F.cross_entropy(output, label)
+
+        model.zero_grad()
+        loss.backward()
+
+        perturbed = perturbed + alpha * perturbed.grad.sign()
+        eta = (perturbed - original).clamp(-epsilon, epsilon)
+        perturbed = (original + eta).clamp(0, 1).detach()
+
+    return perturbed
+
+
+def pgd_attack(model, image_01, label, epsilon=0.03, alpha=0.01, iters=10, mean=None, std=None):
+    import torch
+    import torch.nn.functional as F
+
+    epsilon = float(epsilon)
+    alpha = float(alpha)
+    iters = int(iters)
+
+    original = image_01.clone().detach()
+    perturbed = original + torch.empty_like(original).uniform_(-epsilon, epsilon)
+    perturbed = perturbed.clamp(0, 1).detach()
+
+    for _ in range(iters):
+        perturbed = perturbed.clone().detach().requires_grad_(True)
+        output = model((perturbed - mean) / std)
+        loss = F.cross_entropy(output, label)
+
+        model.zero_grad()
+        loss.backward()
+
+        perturbed = perturbed + alpha * perturbed.grad.sign()
+        eta = (perturbed - original).clamp(-epsilon, epsilon)
+        perturbed = (original + eta).clamp(0, 1).detach()
+
+    return perturbed
+
+
+def _tensor01_to_uint8_rgb(image_tensor_01):
+    img = (
+        image_tensor_01.detach()
+        .squeeze(0)
+        .clamp(0, 1)
+        .cpu()
+        .permute(1, 2, 0)
+        .numpy()
+    )
+    return (img * 255.0).round().astype(np.uint8)
+
+
+def _save_rgb_uint8(path: str, rgb_uint8: np.ndarray):
+    from PIL import Image as PilImage
+
+    PilImage.fromarray(rgb_uint8).save(path)
+
+
+def _save_difference_heatmap(path: str, original_rgb: np.ndarray, adversarial_rgb: np.ndarray):
+    from PIL import Image as PilImage
+
+    diff = np.abs(adversarial_rgb.astype(np.float32) - original_rgb.astype(np.float32))
+    diff_gray = diff.mean(axis=2)
+    max_val = float(diff_gray.max()) if diff_gray.size else 0.0
+    if max_val > 0:
+        diff_gray = (diff_gray / max_val) * 255.0
+    diff_u8 = diff_gray.clip(0, 255).astype(np.uint8)
+
+    heat_bgr = cv2.applyColorMap(diff_u8, cv2.COLORMAP_JET)
+    heat_rgb = cv2.cvtColor(heat_bgr, cv2.COLOR_BGR2RGB)
+    PilImage.fromarray(heat_rgb).save(path)
+
+
+def run_image_adversarial_attack(
+    upload_path: str,
+    attack_type: str = "fgsm",
+    epsilon: float = 0.03,
+    alpha: float = 0.01,
+    iters: int = 10,
+):
+    torch_runtime = get_torch_runtime()
+    torch = torch_runtime["torch"]
+    device = torch_runtime["device"]
+    transforms = torch_runtime["transforms"]
+    Image = get_image_module()
+
+    if not os.path.exists(IMAGE_MODEL_PATH):
+        raise FileNotFoundError("No image model found")
+
+    checkpoint = torch.load(IMAGE_MODEL_PATH, map_location=device)
+    model_name = checkpoint.get("model_name") or checkpoint.get("model_type") or "resnet"
+    classes = checkpoint.get("classes", [])
+    num_classes = checkpoint.get("num_classes", len(classes))
+
+    model = load_model(model_name, num_classes).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+    model.eval()
+
+    preprocess = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+    ])
+
+    pil_img = Image.open(upload_path).convert("RGB")
+    original_01 = preprocess(pil_img).unsqueeze(0).to(device).clamp(0, 1)
+
+    mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+
+    with torch.no_grad():
+        original_logits = model((original_01 - mean) / std)
+        original_probs = torch.softmax(original_logits, dim=1)
+        original_conf, original_idx = torch.max(original_probs, 1)
+
+    label = original_idx.detach()
+
+    attack = str(attack_type or "fgsm").strip().lower()
+    if attack == "fgsm":
+        adversarial_01 = fgsm_attack(model, original_01, label, epsilon, mean, std)
+    elif attack == "bim":
+        adversarial_01 = bim_attack(
+            model, original_01, label, epsilon=epsilon, alpha=alpha, iters=iters, mean=mean, std=std
+        )
+    elif attack == "pgd":
+        adversarial_01 = pgd_attack(
+            model, original_01, label, epsilon=epsilon, alpha=alpha, iters=iters, mean=mean, std=std
+        )
+    else:
+        raise ValueError("Unsupported attack_type. Use one of: fgsm, bim, pgd.")
+
+    with torch.no_grad():
+        adv_logits = model((adversarial_01 - mean) / std)
+        adv_probs = torch.softmax(adv_logits, dim=1)
+        adv_conf, adv_idx = torch.max(adv_probs, 1)
+
+    original_idx_int = int(original_idx.item())
+    adv_idx_int = int(adv_idx.item())
+
+    original_label = classes[original_idx_int] if original_idx_int < len(classes) else str(original_idx_int)
+    adv_label = classes[adv_idx_int] if adv_idx_int < len(classes) else str(adv_idx_int)
+
+    original_label_conf_after = float(adv_probs[0, original_idx_int].item())
+    original_conf_val = float(original_conf.item())
+    confidence_drop = float(original_conf_val - original_label_conf_after)
+
+    outputs_dir = os.path.join(UPLOAD_FOLDER, "adversarial", "outputs")
+    os.makedirs(outputs_dir, exist_ok=True)
+    run_id = uuid.uuid4().hex
+
+    original_rgb = _tensor01_to_uint8_rgb(original_01)
+    adversarial_rgb = _tensor01_to_uint8_rgb(adversarial_01)
+
+    original_name = f"original_{run_id}.png"
+    adversarial_name = f"adversarial_{attack}_{run_id}.png"
+    diff_name = f"difference_{attack}_{run_id}.png"
+
+    original_path = os.path.join(outputs_dir, original_name)
+    adversarial_path = os.path.join(outputs_dir, adversarial_name)
+    diff_path = os.path.join(outputs_dir, diff_name)
+
+    _save_rgb_uint8(original_path, original_rgb)
+    _save_rgb_uint8(adversarial_path, adversarial_rgb)
+    _save_difference_heatmap(diff_path, original_rgb, adversarial_rgb)
+
+    return {
+        "attack_type": attack,
+        "params": {
+            "epsilon": float(epsilon),
+            "alpha": float(alpha),
+            "iters": int(iters),
+        },
+        "original_prediction": {
+            "label": original_label,
+            "confidence": original_conf_val,
+        },
+        "adversarial_prediction": {
+            "label": adv_label,
+            "confidence": float(adv_conf.item()),
+        },
+        "original_label_confidence_after_attack": original_label_conf_after,
+        "confidence_drop": confidence_drop,
+        "images": {
+            "original": f"/uploads/adversarial/outputs/{original_name}",
+            "adversarial": f"/uploads/adversarial/outputs/{adversarial_name}",
+            "difference": f"/uploads/adversarial/outputs/{diff_name}",
+        },
+        "model": {
+            "name": model_name,
+            "num_classes": int(num_classes),
+        },
+    }
+
 @app.post("/test-image")
 async def test_image(file: UploadFile = File(...)):
     try:
@@ -6808,6 +7492,10 @@ async def adversarial_testing_run(request: Request, data: dict = Body(...)):
     model_id = str(data.get("model_id") or "").strip()
     test_type = str(data.get("test_type") or "robustness").strip().lower()
     upload_path = str(data.get("upload_path") or "").strip()
+    attack_type = str(data.get("attack_type") or "fgsm").strip().lower()
+    epsilon = data.get("epsilon", 0.03)
+    alpha = data.get("alpha", 0.01)
+    iters = data.get("iters", 10)
 
     if not model_id:
         return {"error": "model_id is required"}
@@ -6820,6 +7508,7 @@ async def adversarial_testing_run(request: Request, data: dict = Body(...)):
     model_type = selected_model.get("type", "unknown")
     vulnerabilities = []
     recommendations = []
+    attack_result = None
 
     if model_type == "tabular":
         try:
@@ -6845,9 +7534,27 @@ async def adversarial_testing_run(request: Request, data: dict = Body(...)):
     uploaded_sample = None
     if upload_path and os.path.exists(upload_path):
         uploaded_sample = {"path": upload_path, "filename": os.path.basename(upload_path)}
+        try:
+            rel = os.path.relpath(upload_path, UPLOAD_FOLDER)
+            if not rel.startswith(".."):
+                uploaded_sample["url"] = f"/uploads/{rel.replace(os.sep, '/')}"
+        except Exception:
+            pass
+
         filename = upload_path.lower()
         try:
-            if filename.endswith(".csv"):
+            if model_type == "image" and is_valid_image(filename):
+                try:
+                    attack_result = run_image_adversarial_attack(
+                        upload_path=upload_path,
+                        attack_type=attack_type,
+                        epsilon=float(epsilon),
+                        alpha=float(alpha),
+                        iters=int(iters),
+                    )
+                except Exception as exc:
+                    vulnerabilities.append(f"Adversarial image attack failed: {exc}")
+            elif filename.endswith(".csv"):
                 uploaded_df = safe_read_csv(upload_path)
             elif filename.endswith(".xlsx"):
                 uploaded_df = pd.read_excel(upload_path)
@@ -6889,6 +7596,7 @@ async def adversarial_testing_run(request: Request, data: dict = Body(...)):
         "vulnerabilities": vulnerabilities,
         "recommendations": recommendations,
         "uploaded_sample": uploaded_sample,
+        "attack_result": attack_result,
         "status": "success",
     }
 

@@ -28,3 +28,5 @@ xgboost
 timm
 transformers
 opencv-python-headless
+requests
+kaggle
