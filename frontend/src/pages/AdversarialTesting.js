@@ -10,6 +10,8 @@ export default function AdversarialTesting() {
   const [selectedModel, setSelectedModel] = useState('');
   const [testType, setTestType] = useState('robustness');
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedSample, setUploadedSample] = useState(null);
   const [results, setResults] = useState(null);
 
   useEffect(() => {
@@ -25,6 +27,26 @@ export default function AdversarialTesting() {
     }
   };
 
+  const handleFileUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploading(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await API.post('/adversarial/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setUploadedSample(res.data);
+    } catch (error) {
+      console.error('Error uploading adversarial sample:', error);
+      alert('Error uploading sample');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleRunTest = async () => {
     if (!selectedModel) {
       alert('Please select a model');
@@ -35,7 +57,8 @@ export default function AdversarialTesting() {
       setLoading(true);
       const res = await API.post('/adversarial-testing/run', {
         model_id: selectedModel,
-        test_type: testType
+        test_type: testType,
+        upload_path: uploadedSample?.path
       }).catch(() => ({
         data: {
           robustness_score: '98%',
@@ -109,6 +132,28 @@ export default function AdversarialTesting() {
                 </select>
               </div>
 
+              <div>
+                <label className="font-mono text-[10px] text-white/30 mb-2 block uppercase">Challenge Sample</label>
+                <label className="w-full block cursor-pointer bg-white/5 border border-white/[.06] p-3 text-white font-mono text-[11px] hover:border-[#B7FF4A] transition">
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,image/*,audio/*,video/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  {uploading
+                    ? 'Uploading sample...'
+                    : uploadedSample?.filename
+                      ? `Uploaded: ${uploadedSample.filename}`
+                      : 'Upload file for adversarial validation'}
+                </label>
+                {uploadedSample?.rows ? (
+                  <p className="font-mono text-[10px] text-white/40 mt-2 uppercase">
+                    {uploadedSample.rows} rows loaded
+                  </p>
+                ) : null}
+              </div>
+
               <button
                 onClick={handleRunTest}
                 disabled={loading || !selectedModel}
@@ -151,6 +196,14 @@ export default function AdversarialTesting() {
                         <li key={idx} className="font-mono text-[11px] text-white/60">→ {rec}</li>
                       ))}
                     </ul>
+                  </div>
+                )}
+                {results.uploaded_sample && (
+                  <div>
+                    <p className="font-mono text-[10px] text-white/30 mb-2 uppercase">Uploaded Sample</p>
+                    <p className="font-mono text-[11px] text-white/60">
+                      {results.uploaded_sample.filename || 'Attached file'}
+                    </p>
                   </div>
                 )}
               </div>

@@ -30,7 +30,8 @@ export default function Teams() {
   const handleSelectTeam = async (team) => {
     setSelectedTeam(team);
     try {
-      const res = await API.get(`/teams/${team.id}/members`).catch(() => ({
+      const teamId = team.id || team.team_id;
+      const res = await API.get(`/teams/${teamId}/members`).catch(() => ({
         data: { members: [] }
       }));
       setMembers(res.data.members || []);
@@ -74,7 +75,7 @@ export default function Teams() {
                     whileHover={{ paddingLeft: '1rem' }}
                     onClick={() => handleSelectTeam(team)}
                     className={`w-full text-left px-3 py-2 border border-transparent transition-all duration-300 ${
-                      selectedTeam?.id === team.id
+                      (selectedTeam?.id || selectedTeam?.team_id) === (team.id || team.team_id)
                         ? 'border-[#B7FF4A] bg-[#B7FF4A]/5 text-[#B7FF4A]'
                         : 'border-white/[.06] text-white/60 hover:border-white/[.12]'
                     }`}

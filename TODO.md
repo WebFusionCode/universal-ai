@@ -1,13 +1,16 @@
-# Pyright Error Fixes Plan for backend/main.py
-## Overview
-Fix 46 Pyright type errors with type-safe None/string/pandas/torch guards.
+# Fix Pylance Errors in backend/main.py
+Status: 🔄 In Progress
 
-## Steps
-- [x] Step 1: Fix path/string None handling ✅\n- [ ] Step 2: Fix unbound metrics and model.predict None (348,1369)
-- [ ] Step 3: Fix pandas notna/shape/fillna/values (1069,1189,1494,1789,1802,1814)
-- [ ] Step 4: Fix Torch PIL unsqueeze (1610,1643)
-- [ ] Step 5: Fix matplotlib jet (1658)
-- [ ] Step 6: Verify with Pyright: cd backend && pyright .
-- [ ] Step 7: Complete
+## Steps:
+- [x] 1. Create this TODO.md  
+- [ ] 2. Remove corrupted CV code (lines 3755-3780)  
+- [ ] 3. Add clean adaptive CV implementation  
+- [ ] 4. Fix malformed try/except blocks (3778,3824,3840,3850+)  
+- [ ] 5. Fix indentation cascade (3784-3930+)  
+- [ ] 6. Remove top-level returns  
+- [ ] 7. Verify no syntax errors  
+- [ ] 8. Test /train endpoint  
+- [ ] 9. Mark complete + attempt_completion
 
-Progress: 0/7
+**Next**: Step 2 - Corrupted CV removal
+

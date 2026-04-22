@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -16,6 +17,10 @@ const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 
 export default function ModelExplain() {
+  const location = useLocation();
+  const wsRef = useRef(null);
+  const isLive = new URLSearchParams(location.search).get('live') === 'true';
+
   const [activeTab, setActiveTab] = useState('summary');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,17 +28,68 @@ export default function ModelExplain() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [imageResult, setImageResult] = useState(null);
   const [imageMode, setImageMode] = useState('gradcam'); // 'gradcam' or 'vit'
+  const [liveData, setLiveData] = useState({ loss: [], accuracy: [], model: '' });
   
   // AI Q&A State
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
 
+  const explainMap = {
+    summary: 'summary',
+    shap: 'shap',
+    metrics: 'metrics',
+    analytics: 'analytics',
+    image: 'image',
+  };
+
   useEffect(() => {
     if (activeTab !== 'image') {
-      fetchExplanation(activeTab === 'summary' ? 'feature_importance' : activeTab);
+      fetchExplanation(explainMap[activeTab] || 'summary');
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!isLive) return;
+
+    const socketUrl = `${API_BASE.replace(/^http/, 'ws')}/ws/progress`;
+    const ws = new WebSocket(socketUrl);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'training') {
+          setLiveData((prev) => ({
+            ...prev,
+            model: message.model || prev.model,
+            loss: [...prev.loss, message.loss],
+            accuracy: [...prev.accuracy, message.accuracy],
+          }));
+        }
+
+        if (message.type === 'explain') {
+          setLiveData((prev) => ({
+            ...prev,
+            model: message.model || prev.model,
+            loss: message.loss_curve || prev.loss,
+            accuracy: message.accuracy_curve || prev.accuracy,
+          }));
+        }
+      } catch (err) {
+        console.error('Live WS parse error', err);
+      }
+    };
+
+    ws.onerror = () => {
+      console.warn('Live WebSocket error');
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [isLive]);
 
   const fetchExplanation = async (type) => {
     try {
@@ -74,7 +130,11 @@ export default function ModelExplain() {
       formData.append('file', selectedFile);
       
       const endpoint = imageMode === 'gradcam' ? '/explain-image' : '/explain-vit';
-      const res = await API.post(endpoint, formData);
+      const res = await API.post(endpoint, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
       
       if (res.data.error) {
         setError(res.data.error);
@@ -129,6 +189,66 @@ export default function ModelExplain() {
                 </ResponsiveContainer>
               </div>
             </motion.div>
+
+            {isLive && (
+              <motion.div variants={fadeUp} className="md:col-span-2 border border-white/[.08] bg-[#111] p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="font-display text-sm font-bold uppercase text-[#B7FF4A]">Live Training Stream</h3>
+                    <p className="font-mono text-[10px] text-white/40">
+                      {liveData.model ? `Live Model: ${liveData.model}` : 'Waiting for WebSocket...' }
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
+                    <span className="text-green-400 text-xs uppercase">Live Mode</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="border border-white/[.08] rounded-xl p-4 bg-[#000]">
+                    <h4 className="font-display text-[10px] uppercase text-[#B7FF4A] mb-3">Loss Curve</h4>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={liveData.loss.map((loss, index) => ({ epoch: index + 1, loss }))}>
+                        <XAxis dataKey="epoch" stroke="#444" fontSize={10} />
+                        <YAxis stroke="#444" fontSize={10} />
+                        <Tooltip contentStyle={{ backgroundColor: '#111', border: '1px solid #333' }} />
+                        <Line type="monotone" dataKey="loss" stroke="#FF6B6B" dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="border border-white/[.08] rounded-xl p-4 bg-[#000]">
+                    <h4 className="font-display text-[10px] uppercase text-[#B7FF4A] mb-3">Accuracy Curve</h4>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={liveData.accuracy.map((acc, index) => ({ epoch: index + 1, acc }))}>
+                        <XAxis dataKey="epoch" stroke="#444" fontSize={10} />
+                        <YAxis stroke="#444" fontSize={10} />
+                        <Tooltip contentStyle={{ backgroundColor: '#111', border: '1px solid #333' }} />
+                        <Line type="monotone" dataKey="acc" stroke="#B7FF4A" dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {data?.training_logs?.[data?.summary?.model_name]?.loss && (
+              <motion.div variants={fadeUp} className="md:col-span-2 border border-white/[.08] bg-[#111] p-6">
+                <h3 className="font-display text-sm font-bold uppercase text-[#B7FF4A] mb-4 flex items-center gap-2">
+                  <Activity size={16} /> Training Loss Curve
+                </h3>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data.training_logs[data.summary.model_name].loss.map((loss, index) => ({ epoch: index + 1, loss }))}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                      <XAxis dataKey="epoch" stroke="#444" fontSize={10} />
+                      <YAxis stroke="#444" fontSize={10} />
+                      <Tooltip contentStyle={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', fontSize: '10px' }} />
+                      <Line type="monotone" dataKey="loss" stroke="#FF6B6B" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </motion.div>
+            )}
 
             {/* AI Insight Card */}
             {data?.summary?.ai_summary && (
@@ -214,7 +334,12 @@ export default function ModelExplain() {
         );
 
       case 'metrics':
-        const isRegression = !!data?.metrics || !!data?.residuals;
+        const metrics = data?.metrics || {};
+        const confusionMatrix = data?.confusion_matrix || metrics?.confusion_matrix;
+        const isRegression =
+          Array.isArray(data?.residuals) ||
+          typeof metrics?.mse === 'number' ||
+          typeof metrics?.r2 === 'number';
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
              <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
@@ -254,20 +379,20 @@ export default function ModelExplain() {
                    <div className="grid grid-cols-2 gap-4">
                       <div className="bg-white/5 p-4 border border-white/10 text-center">
                         <div className="font-mono text-[9px] text-white/30 uppercase mb-1">MSE</div>
-                        <div className="font-mono text-xl text-[#FF6B6B] font-bold">{data?.metrics?.mse?.toFixed(4) || '0.0000'}</div>
+                        <div className="font-mono text-xl text-[#FF6B6B] font-bold">{metrics?.mse?.toFixed(4) || '0.0000'}</div>
                       </div>
                       <div className="bg-white/5 p-4 border border-white/10 text-center">
                         <div className="font-mono text-[9px] text-white/30 uppercase mb-1">R² Score</div>
-                        <div className="font-mono text-xl text-[#B7FF4A] font-bold">{data?.metrics?.r2?.toFixed(4) || '0.0000'}</div>
+                        <div className="font-mono text-xl text-[#B7FF4A] font-bold">{metrics?.r2?.toFixed(4) || '0.0000'}</div>
                       </div>
                    </div>
                    <p className="font-mono text-[10px] text-white/40 leading-relaxed text-center py-4 italic">
                      "Residuals show the difference between actual and predicted values. Low variance around zero indicates high model stability."
                    </p>
                  </div>
-               ) : data?.confusion_matrix ? (
+               ) : confusionMatrix ? (
                  <div className="grid grid-cols-2 gap-2 max-w-[300px] mx-auto">
-                    {data.confusion_matrix.map((row, i) => 
+                    {confusionMatrix.map((row, i) => 
                       row.map((val, j) => (
                         <div key={`${i}-${j}`} className={`aspect-square flex flex-col items-center justify-center p-4 border border-white/5 ${i === j ? 'bg-[#B7FF4A]/10' : 'bg-red-500/5'}`}>
                            <span className="font-mono text-2xl font-bold text-white">{val}</span>
@@ -302,7 +427,7 @@ export default function ModelExplain() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                <div className="border border-dashed border-white/10 p-8 flex flex-col items-center justify-center bg-[#111]">
-                  <input type="file" id="img-upload" className="hidden" onChange={(e) => setSelectedFile(e.target.files[0])} />
+                  <input type="file" id="img-upload" accept="image/*" className="hidden" onChange={(e) => setSelectedFile(e.target.files[0])} />
                   <label htmlFor="img-upload" className="cursor-pointer group flex flex-col items-center">
                     <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:bg-[#B7FF4A]/20 transition-all">
                       <Upload className="text-white/40 group-hover:text-[#B7FF4A]" />
@@ -346,6 +471,7 @@ export default function ModelExplain() {
         const logs = data?.training_logs || {};
         const activeModelName = data?.summary?.model_name || Object.keys(logs)[0];
         const logData = logs[activeModelName] || { loss: [], accuracy: [] };
+        const scoreLabel = data?.summary?.problem_type === 'regression' ? 'Score Convergence' : 'Accuracy Convergence';
         
         const chartData = logData.loss.map((l, i) => ({
           epoch: i + 1,
@@ -391,7 +517,7 @@ export default function ModelExplain() {
 
               <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
                 <h3 className="font-display text-sm font-bold uppercase text-[#B7FF4A] mb-6 flex items-center gap-2">
-                   <Target size={16} /> Accuracy Convergence
+                   <Target size={16} /> {scoreLabel}
                 </h3>
                 <div className="h-64">
                    <ResponsiveContainer width="100%" height="100%">
@@ -406,6 +532,31 @@ export default function ModelExplain() {
                 </div>
               </motion.div>
             </div>
+
+            {(data?.loss_graph || data?.score_graph) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {data?.loss_graph && (
+                  <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
+                    <h3 className="font-display text-sm font-bold uppercase text-white mb-4">Saved Loss Graph</h3>
+                    <img
+                      src={`${API_BASE}${data.loss_graph}`}
+                      alt="Loss graph"
+                      className="w-full border border-white/10"
+                    />
+                  </motion.div>
+                )}
+                {data?.score_graph && (
+                  <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
+                    <h3 className="font-display text-sm font-bold uppercase text-white mb-4">Saved Score Graph</h3>
+                    <img
+                      src={`${API_BASE}${data.score_graph}`}
+                      alt="Score graph"
+                      className="w-full border border-white/10"
+                    />
+                  </motion.div>
+                )}
+              </div>
+            )}
 
             {/* Neural Artifacts / Download Section */}
             <motion.div variants={fadeUp} className="border border-[#B7FF4A]/20 bg-[#B7FF4A]/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6">

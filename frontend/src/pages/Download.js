@@ -8,13 +8,16 @@ const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 export default function Download() {
   const [report, setReport] = useState(null);
   const [explain, setExplain] = useState(null);
-  const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
+  const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+  const featureImportanceEntries = Array.isArray(explain?.feature_importance)
+    ? explain.feature_importance.map((item) => [item.feature, item.importance])
+    : Object.entries(explain?.feature_importance || explain?.coefficients || {});
 
   useEffect(() => {
     const load = async () => {
       const [r, e] = await Promise.all([
-        API.get('/api/training-report').catch(() => ({ data: {} })),
-        API.get('/api/model-explain').catch(() => ({ data: {} })),
+        API.get('/training-report').catch(() => ({ data: {} })),
+        API.get('/model-explain').catch(() => ({ data: {} })),
       ]);
       if (!r.data.error) setReport(r.data);
       if (!e.data.error) setExplain(e.data);
@@ -34,8 +37,8 @@ export default function Download() {
         <motion.div variants={fadeUp} className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
           {[
             { label: 'Neural Project', sub: 'Download Production ZIP', icon: '01', path: '/download-project' },
-            { label: 'Best Model', sub: 'Download .pkl file', icon: '02', path: '/api/download-model' },
-            { label: 'Documentation', sub: 'Generated Reports', icon: '03', path: '/api/training-report' },
+            { label: 'Best Model', sub: 'Download trained weights', icon: '02', path: '/download-model' },
+            { label: 'Documentation', sub: 'Generated Reports', icon: '03', path: '/training-report' },
           ].map((d, i) => (
             <div key={i} className="border border-white/[.06] p-6 cursor-pointer hover:border-white/[.15] hover:bg-white/[.02] transition-all duration-300"
               onClick={() => window.open(`${backendUrl}${d.path}`, '_blank')}>
@@ -69,12 +72,12 @@ export default function Download() {
         )}
 
         {/* Feature Importance */}
-        {explain && (explain.feature_importance || explain.coefficients) && (
+        {explain && featureImportanceEntries.length > 0 && (
           <motion.div variants={fadeUp} className="border border-white/[.06] p-6">
-            <h3 className="font-mono text-[10px] text-white/30 tracking-[0.15em] uppercase mb-5">Feature Importance ({explain.model_type})</h3>
+            <h3 className="font-mono text-[10px] text-white/30 tracking-[0.15em] uppercase mb-5">Feature Importance</h3>
             <div className="space-y-2">
-              {Object.entries(explain.feature_importance || explain.coefficients || {}).slice(0, 15).map(([feat, val], i) => {
-                const maxVal = Math.max(...Object.values(explain.feature_importance || explain.coefficients || {}).map(Math.abs)) || 1;
+              {featureImportanceEntries.slice(0, 15).map(([feat, val], i) => {
+                const maxVal = Math.max(...featureImportanceEntries.map(([, value]) => Math.abs(Number(value) || 0))) || 1;
                 return (
                   <div key={i} className="flex items-center gap-3">
                     <span className="font-mono text-[10px] text-white/35 w-36 truncate" title={feat}>{feat}</span>

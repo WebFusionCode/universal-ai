@@ -22,13 +22,15 @@ export default function Predict() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const isImage = (f) => f && /\.(jpe?g|png|gif|webp)$/i.test(f.name);
+  const isImage = (f) => f && (/\.(jpe?g|png|gif|webp)$/i.test(f.name) || f.type.startsWith("image/"));
 
   const handleFileChange = (f) => {
     setFile(f);
     setPredictions(null);
     setError('');
-    if (isImage(f)) {
+    // ✅ ISSUE 3: Use file.type for more reliable image detection
+    const isImageFile = f && (f.type.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(f.name));
+    if (isImageFile) {
       setPreview(URL.createObjectURL(f));
     } else {
       setPreview(null);

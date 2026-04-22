@@ -27,7 +27,11 @@ export default function Train() {
   const [progressStatus, setProgressStatus] = useState('');
   const [currentModel, setCurrentModel] = useState('');
   const [epochInfo, setEpochInfo] = useState('');
+
   const [selectedModel, setSelectedModel] = useState('auto');
+  const [datasetMode, setDatasetMode] = useState('auto'); // NEW: Mode selector
+
+  const [isTraining, setIsTraining] = useState(false);
   const [hpParams, setHpParams] = useState({
     epochs: 3,
     batch_size: 32,
@@ -36,6 +40,19 @@ export default function Train() {
     layers: 2,
     n_estimators: 100
   });
+
+  useEffect(() => {
+    const tabularModels = ['rf', 'xgb', 'catboost', 'lr', 'svm', 'knn', 'dt'];
+    const timeSeriesModels = ['lstm', 'gru', 'prophet'];
+
+    if (datasetMode === 'tabular' && timeSeriesModels.includes(selectedModel)) {
+      setSelectedModel('auto');
+    }
+
+    if (datasetMode === 'time_series' && tabularModels.includes(selectedModel)) {
+      setSelectedModel('auto');
+    }
+  }, [datasetMode, selectedModel]);
 
   // Connect to WebSocket for live progress
   useEffect(() => {
@@ -58,9 +75,9 @@ export default function Train() {
           }
           
           if (data.loss !== undefined || data.accuracy !== undefined || data.r2_score !== undefined) {
-             const loss = data.loss ? `L: ${data.loss.toFixed(4)}` : '';
-             const acc = data.accuracy ? `A: ${data.accuracy.toFixed(4)}` : '';
-             const r2 = data.r2_score ? `R²: ${data.r2_score.toFixed(4)}` : '';
+             const loss = typeof data.loss === 'number' ? `L: ${data.loss.toFixed(4)}` : '';
+             const acc = typeof data.accuracy === 'number' ? `A: ${data.accuracy.toFixed(4)}` : '';
+             const r2 = typeof data.r2_score === 'number' ? `R²: ${data.r2_score.toFixed(4)}` : '';
              setProgressStatus(`${data.status || 'Training'} | ${loss} ${acc} ${r2}`);
           }
         };
@@ -113,6 +130,7 @@ export default function Train() {
       return;
     }
     setLoading(true);
+    setIsTraining(true);
     setError('');
     setProgress(10);
     setProgressStatus('Uploading...');
@@ -121,6 +139,8 @@ export default function Train() {
       const formData = new FormData();
       formData.append('file', file);
       if (!isZip) formData.append('target_column', targetColumn);
+
+      formData.append('dataset_mode', datasetMode); // NEW: Send mode
       formData.append('model_name', selectedModel);
       formData.append('selected_model', selectedModel);
       formData.append('params', JSON.stringify({
@@ -130,6 +150,7 @@ export default function Train() {
         "lr": hpParams.lr,
         "LSTM": { "hidden": hpParams.hidden, "layers": hpParams.layers, "epochs": hpParams.epochs }
       }));
+
 
       const res = await API.post('/train', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -150,6 +171,7 @@ export default function Train() {
       setError(err.response?.data?.detail || err.response?.data?.error || 'Training failed');
     } finally {
       setLoading(false);
+      setIsTraining(false);
     }
   };
 
@@ -158,6 +180,7 @@ export default function Train() {
     setTargetColumn(''); setResult(null);
     setError(''); setProgress(0); setProgressStatus('');
     setCurrentModel(''); setEpochInfo('');
+    setIsTraining(false);
   };
 
   return (
@@ -228,6 +251,16 @@ export default function Train() {
                  {progressStatus || 'Synchronizing Neural Paths...'}
                </span>
             </div>
+            {isTraining && (
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={() => navigate('/model-explain?live=true')}
+                  className="px-6 py-2 bg-[#B7FF4A] text-black font-bold uppercase tracking-[0.2em] animate-pulse rounded-lg"
+                >
+                  ⚡ LIVE MODEL EXPLAIN
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -252,7 +285,13 @@ export default function Train() {
                 <div className="px-6 py-3 bg-[#B7FF4A] text-[#0a0a0a] font-mono text-[11px] font-bold tracking-[0.1em] uppercase hover:bg-[#c8ff73] transition-all">
                   Select File
                 </div>
-                <input type="file" accept=".csv,.xlsx,.zip" onChange={handleFileSelect} className="hidden" disabled={loading} />
+                <input 
+                  type="file" 
+                  accept="image/*,.csv,.xlsx,.xls,.zip" 
+                  onChange={handleFileSelect} 
+                  className="hidden" 
+                  disabled={loading} 
+                />
               </label>
             </div>
           </div>
@@ -337,6 +376,27 @@ export default function Train() {
 
               {/* Model Selection */}
               <div className="mt-6 flex flex-col md:flex-row gap-6">
+
+                <div className="flex-1 space-y-3">
+                  <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
+                    <Zap size={16} className="text-[#B7FF4A]" /> Dataset Mode
+                  </h3>
+                  <select
+                    value={datasetMode}
+                    onChange={(e) => setDatasetMode(e.target.value)}
+                    className="w-full px-4 py-3 bg-white/[.03] border border-white/[.08] text-white font-mono text-[13px] focus:outline-none focus:border-[#B7FF4A]/40 transition-all"
+                  >
+                    <option value="auto">Auto (Recommended)</option>
+                    <option value="tabular">📊 Tabular (RF/XGB)</option>
+                    <option value="time_series">📈 Time Series (Prophet/LSTM)</option>
+                  </select>
+                  <p className="font-mono text-[10px] text-white/60">
+                    {datasetMode === 'tabular' ? '✅ RandomForest, XGBoost, CatBoost will compete' :
+                     datasetMode === 'time_series' ? '⏰ Prophet, LSTM/GRU forecasting pipeline' :
+                     '🤖 AI will auto-select best approach'}
+                  </p>
+                </div>
+
                 <div className="flex-1 space-y-3">
                   <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">
                     <Brain size={16} className="text-[#B7FF4A]" /> Model Selection
@@ -354,6 +414,9 @@ export default function Train() {
                       <option value="xgb">XGBoost</option>
                       <option value="catboost">CatBoost</option>
                       <option value="lr">Linear/Logistic Regression</option>
+                      <option value="svm">SVM / SVR</option>
+                      <option value="knn">KNN</option>
+                      <option value="dt">Decision Tree</option>
                     </optgroup>
 
                     {/* TIME SERIES */}
@@ -374,6 +437,7 @@ export default function Train() {
                     </optgroup>
                   </select>
                 </div>
+
 
                 <div className="flex-1 space-y-3">
                   <h3 className="font-display text-sm font-bold uppercase text-white mb-4 flex items-center gap-2">

@@ -1,0 +1,1 @@
+{"model_name": "LinearRegression", "problem_type": "regression", "features_count": 3, "rows": 80, "score": 0.9996796137271311, "loss": 0.17469755116253805, "top_feature": "feature_a", "dataset_size": 80}
