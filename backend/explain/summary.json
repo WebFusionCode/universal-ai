@@ -1,1 +1,1 @@
-{"model_name": "SimpleCNN", "problem_type": "image_classification", "features_count": 0}
+{"model_name": "MobileNet", "problem_type": "image_classification", "features_count": 0}

@@ -5,6 +5,14 @@ import API from '../lib/api';
 
 const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 
+const resolveImageSrc = (value, apiBase) => {
+  if (!value || typeof value !== 'string') return '';
+  if (value.startsWith('data:image') || value.startsWith('blob:') || value.startsWith('http')) {
+    return value;
+  }
+  return `${apiBase}${value}`;
+};
+
 export default function AdversarialTesting() {
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
@@ -18,6 +26,7 @@ export default function AdversarialTesting() {
   const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
   const selectedModelObj = models.find((m) => m.id === selectedModel);
   const isImageModel = selectedModelObj?.type === 'image';
+  const attackImages = results?.attack_result?.images || {};
 
   useEffect(() => {
     loadModels();
@@ -228,7 +237,7 @@ export default function AdversarialTesting() {
                   </div>
                 )}
 
-                {results.attack_result?.images && (
+                {results.attack_result && (
                   <div className="pt-4 border-t border-white/[.06] space-y-4">
                     <div>
                       <p className="font-mono text-[10px] text-white/30 mb-2 uppercase">Attack Output</p>
@@ -240,27 +249,70 @@ export default function AdversarialTesting() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
                         <p className="font-mono text-[10px] text-white/30 uppercase">Original</p>
-                        <img
-                          src={`${API_BASE}${results.attack_result.images.original}`}
-                          alt="Original"
-                          className="w-full border border-white/[.06]"
-                        />
+                        {resolveImageSrc(attackImages.original || results.attack_result.original_image, API_BASE) ? (
+                          <img
+                            src={resolveImageSrc(attackImages.original || results.attack_result.original_image, API_BASE)}
+                            alt="Original"
+                            className="w-full border border-white/[.06]"
+                          />
+                        ) : (
+                          <div className="min-h-[180px] flex items-center justify-center border border-dashed border-white/[.06] font-mono text-[10px] uppercase tracking-widest text-white/30">
+                            Visualization not available
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <p className="font-mono text-[10px] text-white/30 uppercase">Adversarial</p>
-                        <img
-                          src={`${API_BASE}${results.attack_result.images.adversarial}`}
-                          alt="Adversarial"
-                          className="w-full border border-white/[.06]"
-                        />
+                        {resolveImageSrc(attackImages.adversarial || results.attack_result.perturbed_image, API_BASE) ? (
+                          <img
+                            src={resolveImageSrc(attackImages.adversarial || results.attack_result.perturbed_image, API_BASE)}
+                            alt="Adversarial"
+                            className="w-full border border-white/[.06]"
+                          />
+                        ) : (
+                          <div className="min-h-[180px] flex items-center justify-center border border-dashed border-white/[.06] font-mono text-[10px] uppercase tracking-widest text-white/30">
+                            Visualization not available
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <p className="font-mono text-[10px] text-white/30 uppercase">Difference</p>
-                        <img
-                          src={`${API_BASE}${results.attack_result.images.difference}`}
-                          alt="Difference Heatmap"
-                          className="w-full border border-white/[.06]"
-                        />
+                        {resolveImageSrc(attackImages.difference || results.attack_result.difference_map, API_BASE) ? (
+                          <img
+                            src={resolveImageSrc(attackImages.difference || results.attack_result.difference_map, API_BASE)}
+                            alt="Difference Heatmap"
+                            className="w-full border border-white/[.06]"
+                          />
+                        ) : (
+                          <div className="min-h-[180px] flex items-center justify-center border border-dashed border-white/[.06] font-mono text-[10px] uppercase tracking-widest text-white/30">
+                            Visualization not available
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <p className="font-mono text-[10px] text-white/30 uppercase">Pixel Noise</p>
+                        {resolveImageSrc(attackImages.pixel_noise || results.attack_result.pixel_noise, API_BASE) ? (
+                          <img
+                            src={resolveImageSrc(attackImages.pixel_noise || results.attack_result.pixel_noise, API_BASE)}
+                            alt="Pixel Noise"
+                            className="w-full border border-white/[.06]"
+                          />
+                        ) : (
+                          <div className="min-h-[180px] flex items-center justify-center border border-dashed border-white/[.06] font-mono text-[10px] uppercase tracking-widest text-white/30">
+                            Visualization not available
+                          </div>
+                        )}
+                      </div>
+                      <div className="border border-white/[.06] p-4">
+                        <p className="font-mono text-[10px] text-white/30 mb-2 uppercase">Robustness Score</p>
+                        <p className="font-display text-2xl text-[#B7FF4A]">
+                          {Number.isFinite(results.attack_result.robustness_score)
+                            ? `${results.attack_result.robustness_score.toFixed(1)}%`
+                            : (results.robustness_score || 'Visualization not available')}
+                        </p>
                       </div>
                     </div>
 

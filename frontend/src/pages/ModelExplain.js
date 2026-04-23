@@ -16,6 +16,31 @@ const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
 const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 
+const resolveImageSrc = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  if (value.startsWith('data:image') || value.startsWith('blob:') || value.startsWith('http')) {
+    return value;
+  }
+  return `${API_BASE}${value}`;
+};
+
+function VisualizationPanel({ title, image, fallback = 'Visualization not available' }) {
+  const src = resolveImageSrc(image);
+
+  return (
+    <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-4">
+      <h3 className="font-display text-sm font-bold uppercase text-white mb-4">{title}</h3>
+      {src ? (
+        <img src={src} alt={title} className="w-full border border-white/10" />
+      ) : (
+        <div className="min-h-[220px] flex items-center justify-center border border-dashed border-white/10 text-center font-mono text-[10px] uppercase tracking-widest text-white/30 px-6">
+          {fallback}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 export default function ModelExplain() {
   const location = useLocation();
   const wsRef = useRef(null);
@@ -171,8 +196,9 @@ export default function ModelExplain() {
                 <BarChart3 size={16} /> Global Feature Impact
               </h3>
               <div className="h-64">
+                {Array.isArray(data?.feature_importance) && data.feature_importance.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data?.feature_importance?.slice(0, 8)}>
+                  <BarChart data={data?.feature_importance?.slice(0, 8) || []}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
                     <XAxis dataKey="feature" hide />
                     <YAxis stroke="#444" fontSize={10} fontFamily="monospace" />
@@ -187,6 +213,11 @@ export default function ModelExplain() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center font-mono text-[10px] uppercase tracking-widest text-white/30">
+                    Visualization not available
+                  </div>
+                )}
               </div>
             </motion.div>
 
@@ -310,27 +341,42 @@ export default function ModelExplain() {
 
       case 'shap':
         return (
-          <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
-             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-display text-sm font-bold uppercase text-white flex items-center gap-2">
-                <Zap size={16} className="text-[#B7FF4A]" /> SHAP Strategic Values
-              </h3>
-              <div className="font-mono text-[9px] text-white/30 uppercase tracking-widest border border-white/10 px-2 py-1 rounded">
-                Global Contribution
+          <div className="space-y-6">
+            <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-display text-sm font-bold uppercase text-white flex items-center gap-2">
+                  <Zap size={16} className="text-[#B7FF4A]" /> SHAP Strategic Values
+                </h3>
+                <div className="font-mono text-[9px] text-white/30 uppercase tracking-widest border border-white/10 px-2 py-1 rounded">
+                  Global Contribution
+                </div>
               </div>
+              <div className="h-[400px]">
+                {Array.isArray(data?.shap) && data.shap.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data?.shap || []} layout="vertical" margin={{ left: 40 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#222" horizontal={false} />
+                      <XAxis type="number" stroke="#444" fontSize={10} />
+                      <YAxis dataKey="feature" type="category" stroke="#666" fontSize={10} width={100} fontFamily="monospace" />
+                      <Tooltip contentStyle={{ backgroundColor: '#000', border: '1px solid #333' }} />
+                      <Bar dataKey="value" fill="#B7FF4A" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center font-mono text-[10px] uppercase tracking-widest text-white/30">
+                    Visualization not available
+                  </div>
+                )}
+              </div>
+            </motion.div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <VisualizationPanel title="SHAP Summary Plot" image={data?.shap_summary} />
+              <VisualizationPanel title="SHAP Bar Plot" image={data?.shap_bar} />
+              <VisualizationPanel title="Dependence Plot" image={data?.dependence_plot} />
+              <VisualizationPanel title="Residual Plot" image={data?.residual_plot} />
             </div>
-            <div className="h-[400px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data?.shap} layout="vertical" margin={{ left: 40 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#222" horizontal={false} />
-                  <XAxis type="number" stroke="#444" fontSize={10} />
-                  <YAxis dataKey="feature" type="category" stroke="#666" fontSize={10} width={100} fontFamily="monospace" />
-                  <Tooltip contentStyle={{ backgroundColor: '#000', border: '1px solid #333' }} />
-                  <Bar dataKey="value" fill="#B7FF4A" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </motion.div>
+          </div>
         );
 
       case 'metrics':
@@ -450,7 +496,7 @@ export default function ModelExplain() {
 
                <div className="border border-white/[.08] bg-[#000] p-4 flex items-center justify-center min-h-[300px] relative overflow-hidden">
                   {imageResult ? (
-                    <img src={`${API_BASE}${imageResult}`} alt="XAI Overlay" className="max-w-full h-auto rounded border border-white/10 shadow-2xl" />
+                    <img src={resolveImageSrc(imageResult)} alt="XAI Overlay" className="max-w-full h-auto rounded border border-white/10 shadow-2xl" />
                   ) : (
                     <div className="text-center space-y-4">
                       <ImageIcon className="mx-auto text-white/5" size={64} />
@@ -539,7 +585,7 @@ export default function ModelExplain() {
                   <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
                     <h3 className="font-display text-sm font-bold uppercase text-white mb-4">Saved Loss Graph</h3>
                     <img
-                      src={`${API_BASE}${data.loss_graph}`}
+                      src={resolveImageSrc(data.loss_graph)}
                       alt="Loss graph"
                       className="w-full border border-white/10"
                     />
@@ -549,7 +595,7 @@ export default function ModelExplain() {
                   <motion.div variants={fadeUp} className="border border-white/[.08] bg-[#111] p-6">
                     <h3 className="font-display text-sm font-bold uppercase text-white mb-4">Saved Score Graph</h3>
                     <img
-                      src={`${API_BASE}${data.score_graph}`}
+                      src={resolveImageSrc(data.score_graph)}
                       alt="Score graph"
                       className="w-full border border-white/10"
                     />
@@ -557,6 +603,11 @@ export default function ModelExplain() {
                 )}
               </div>
             )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <VisualizationPanel title="Feature Importance Plot" image={data?.feature_importance_plot} />
+              <VisualizationPanel title="Saved Residual Plot" image={data?.metrics?.residual_plot || data?.residual_plot} />
+            </div>
 
             {/* Neural Artifacts / Download Section */}
             <motion.div variants={fadeUp} className="border border-[#B7FF4A]/20 bg-[#B7FF4A]/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6">
