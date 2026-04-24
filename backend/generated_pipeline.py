@@ -1,2 +1,2 @@
-# Generated code for RandomForestRegressor
-print('Training RandomForestRegressor')
+# Generated code for DecisionTreeRegressor
+print('Training DecisionTreeRegressor')
